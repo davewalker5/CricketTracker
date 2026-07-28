@@ -6,7 +6,7 @@ import sqlite3
 from datetime import date, time
 from typing import Any
 
-from cricket_tracker.formats import format_delivery_count
+from cricket_tracker.formats import format_delivery_count, legal_balls_for_limit
 from cricket_tracker.repositories import CricketRepository, Repository
 
 
@@ -22,6 +22,18 @@ RESULT_TYPES = (
     "Runs", "Wickets", "Tie", "No Result", "Abandoned", "Walkover",
 )
 RESULT_METHODS = ("Standard", "DLS", "Super Five", "Super Over", "Forfeit", "Walkover", "Other")
+INNINGS_STATUSES = (
+    "not_started",
+    "in_progress",
+    "completed",
+    "all_out",
+    "target_reached",
+    "innings_limit_reached",
+    "abandoned",
+)
+COMPLETED_INNINGS_STATUSES = {
+    "completed", "all_out", "target_reached", "innings_limit_reached",
+}
 
 
 class ValidationError(ValueError):
@@ -377,7 +389,72 @@ class CricketService:
         :param competition_id: Optional competition filter.
         :return: Enriched match rows.
         """
-        return self.repo.list_matches(competition_id)
+        matches = self.repo.list_matches(competition_id)
+        for match in matches:
+            # Null overrides inherit the canonical allocation from the match format.
+            format_balls = legal_balls_for_limit(
+                int(match["innings_limit"]),
+                limit_unit=str(match["limit_unit"]),
+                balls_per_over=match["balls_per_over"],
+            )
+            scheduled_balls = int(match["scheduled_balls"] or format_balls)
+            effective_balls = int(match["revised_balls"] or scheduled_balls)
+            match["scheduled_delivery_display"] = format_delivery_count(
+                scheduled_balls,
+                limit_unit=str(match["limit_unit"]),
+                balls_per_over=match["balls_per_over"],
+            )
+            match["effective_delivery_display"] = format_delivery_count(
+                effective_balls,
+                limit_unit=str(match["limit_unit"]),
+                balls_per_over=match["balls_per_over"],
+            )
+        return matches
+
+    def _playing_conditions_for_competition(
+        self, competition_id: int
+    ) -> dict[str, Any]:
+        """Return ruleset and format properties for a competition.
+
+        :param competition_id: Competition identifier.
+        :return: Combined ruleset and match-format properties.
+        :raises ValidationError: If the competition references are invalid.
+        """
+        # A single join keeps match allocation validation driven by persisted metadata.
+        row = self.repo.connection.execute(
+            """
+            SELECT r.wickets_per_innings, f.*
+            FROM competitions c
+            JOIN competition_rulesets r ON r.id = c.ruleset_id
+            JOIN match_formats f ON f.id = r.match_format_id
+            WHERE c.id = ?
+            """,
+            (competition_id,),
+        ).fetchone()
+        if not row:
+            raise ValidationError("Select a valid competition.")
+        return dict(row)
+
+    def effective_innings_balls(self, match_id: int) -> int:
+        """Return the effective legal-ball allocation for a match innings.
+
+        :param match_id: Match identifier.
+        :return: Revised, scheduled, or format-default legal balls.
+        :raises ValidationError: If the match or its playing conditions are invalid.
+        """
+        match = self.repo.matches.get(match_id)
+        if not match:
+            raise ValidationError("Select a valid match.")
+        conditions = self._playing_conditions_for_competition(
+            int(match["competition_id"])
+        )
+        # Match overrides are canonical balls; only the format default needs conversion.
+        default_balls = legal_balls_for_limit(
+            int(conditions["innings_limit"]),
+            limit_unit=str(conditions["limit_unit"]),
+            balls_per_over=conditions["balls_per_over"],
+        )
+        return int(match["revised_balls"] or match["scheduled_balls"] or default_balls)
 
     def _match_teams(self, match_id: int) -> tuple[int, int]:
         """Return the two teams participating in a match.
@@ -455,8 +532,31 @@ class CricketService:
         if result_type in {"Abandoned", "No Result"}:
             # Exceptional result types conclusively determine their matching status.
             status = result_type
+        competition_id = int(values["competition_id"])
+        conditions = self._playing_conditions_for_competition(competition_id)
+        format_balls = legal_balls_for_limit(
+            int(conditions["innings_limit"]),
+            limit_unit=str(conditions["limit_unit"]),
+            balls_per_over=conditions["balls_per_over"],
+        )
+        scheduled_balls = optional_non_negative(
+            values.get("scheduled_balls"), "Scheduled allocation"
+        )
+        revised_balls = optional_non_negative(
+            values.get("revised_balls"), "Revised allocation"
+        )
+        if scheduled_balls == 0 or revised_balls == 0:
+            raise ValidationError("Match innings allocations must be greater than zero.")
+        if scheduled_balls is not None and scheduled_balls > format_balls:
+            raise ValidationError(
+                "Scheduled allocation cannot exceed the match-format innings limit."
+            )
+        if revised_balls is not None and revised_balls > (scheduled_balls or format_balls):
+            raise ValidationError(
+                "Revised allocation cannot exceed the scheduled innings allocation."
+            )
         data = {
-            "competition_id": int(values["competition_id"]),
+            "competition_id": competition_id,
             "match_date": valid_date(values.get("match_date"), "Match date"),
             "start_time": valid_time(values.get("start_time")),
             "venue_id": values.get("venue_id"),
@@ -475,6 +575,8 @@ class CricketService:
             "result_method": result_method,
             "result_source": result_source,
             "result_override_reason": override_reason,
+            "scheduled_balls": scheduled_balls,
+            "revised_balls": revised_balls,
         }
         saved_id = self._save(self.repo.matches, entity_id, data)
         # Rebuild ordinary result fields after a status or participant change.
@@ -550,25 +652,52 @@ class CricketService:
         ):
             raise ValidationError("Both innings teams must belong to the match.")
         innings_number = non_negative(values.get("innings_number"), "Innings number")
-        if innings_number < 1:
-            raise ValidationError("Innings number must be at least one.")
+        conditions = self._ruleset_for_match(match_id)
+        maximum_innings = int(conditions["innings_per_team"]) * 2
+        if innings_number < 1 or innings_number > maximum_innings:
+            raise ValidationError(
+                f"Innings number must be between 1 and {maximum_innings}."
+            )
         wickets = optional_non_negative(values.get("wickets"), "Wickets")
         if wickets is not None and wickets > 10:
             raise ValidationError("Wickets cannot exceed 10.")
         balls = optional_non_negative(values.get("balls"), "Balls")
+        allocation = self.effective_innings_balls(match_id)
+        if balls is not None and balls > allocation:
+            raise ValidationError(
+                f"Legal balls cannot exceed the match allocation of {allocation}."
+            )
         supplied_totals = (
             values.get("runs"), values.get("wickets"), values.get("balls")
         )
         completed_value = values.get("completed")
-        completed = (
-            bool(completed_value)
-            if completed_value is not None
-            else (
-                batting_team is not None
+        supplied_status = optional_text(values.get("innings_status"))
+        if supplied_status:
+            innings_status = valid_choice(
+                supplied_status, INNINGS_STATUSES, "Innings status"
+            )
+        elif completed_value is not None:
+            # Legacy callers continue to control conclusion through the boolean field.
+            innings_status = (
+                "completed"
+                if bool(completed_value)
+                else (
+                    "in_progress"
+                    if any(value is not None for value in supplied_totals)
+                    else "not_started"
+                )
+            )
+        elif any(value is not None for value in supplied_totals):
+            innings_status = (
+                "completed"
+                if batting_team is not None
                 and bowling_team is not None
                 and all(value is not None for value in supplied_totals)
+                else "in_progress"
             )
-        )
+        else:
+            innings_status = "not_started"
+        completed = innings_status in COMPLETED_INNINGS_STATUSES
         if completed and None in (
             batting_team, bowling_team, values.get("runs"),
             wickets, balls,
@@ -576,6 +705,31 @@ class CricketService:
             raise ValidationError(
                 "Completed innings require both teams, runs, wickets, and balls."
             )
+        if innings_status == "not_started" and any(
+            value not in (None, 0) for value in supplied_totals
+        ):
+            raise ValidationError("A not-started innings cannot contain score progress.")
+        if innings_status == "all_out" and wickets != int(
+            conditions["wickets_per_innings"]
+        ):
+            raise ValidationError(
+                "An all-out innings must have lost every available wicket."
+            )
+        if innings_status == "innings_limit_reached" and balls != allocation:
+            raise ValidationError(
+                "An innings-limit-reached innings must use its full allocation."
+            )
+        if innings_status == "target_reached":
+            if innings_number != 2:
+                raise ValidationError("Only the chasing innings can reach a target.")
+            target = optional_non_negative(values.get("target"), "Target")
+            if target in (None, 0):
+                raise ValidationError("A target-reached innings requires a target.")
+            runs = optional_non_negative(values.get("runs"), "Runs")
+            if runs is None or runs < target:
+                raise ValidationError(
+                    "A target-reached innings must meet or exceed its target."
+                )
         data = {
             "match_id": match_id,
             "innings_number": innings_number,
@@ -587,6 +741,7 @@ class CricketService:
             "extras": optional_non_negative(values.get("extras"), "Extras"),
             "target": optional_non_negative(values.get("target"), "Target"),
             "completed": int(completed),
+            "innings_status": innings_status,
         }
         if data["target"] == 0:
             raise ValidationError("Target must be greater than zero when supplied.")
@@ -784,10 +939,14 @@ class CricketService:
         """
         row = self.repo.connection.execute(
             """
-            SELECT r.*
+            SELECT r.*, f.code AS match_format_code,
+                   f.name AS match_format_name, f.innings_per_team,
+                   f.limit_unit, f.innings_limit, f.balls_per_over,
+                   f.draw_allowed, f.tie_allowed, f.revised_target_supported
             FROM matches m
             JOIN competitions c ON c.id = m.competition_id
             JOIN competition_rulesets r ON r.id = c.ruleset_id
+            JOIN match_formats f ON f.id = r.match_format_id
             WHERE m.id = ?
             """,
             (match_id,),

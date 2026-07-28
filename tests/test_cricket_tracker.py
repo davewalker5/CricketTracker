@@ -78,6 +78,7 @@ def test_initial_schema_is_cricket_native(connection: sqlite3.Connection) -> Non
     columns = {row["name"] for row in connection.execute("PRAGMA table_info(matches)")}
     assert "home_score" not in columns
     assert {"match_status", "winning_team_id", "result_margin_type"} <= columns
+    assert {"scheduled_balls", "revised_balls"} <= columns
     assert "notes" not in columns
     team_columns = {
         row["name"] for row in connection.execute("PRAGMA table_info(teams)")
@@ -89,6 +90,7 @@ def test_initial_schema_is_cricket_native(connection: sqlite3.Connection) -> Non
         row["name"] for row in connection.execute("PRAGMA table_info(innings)")
     }
     assert "notes" not in innings_columns
+    assert "innings_status" in innings_columns
     for table in ("venues", "competitions"):
         columns = {
             row["name"] for row in connection.execute(f"PRAGMA table_info({table})")
@@ -191,6 +193,222 @@ def test_innings_list_uses_its_ruleset_match_format(
     )
 
     assert service.list_innings(core["match"])[0]["delivery_display"] == "13.5 overs"
+
+
+def assign_core_match_format(
+    service: CricketService, core: dict[str, int], format_code: str
+) -> None:
+    """Associate the core fixture's ruleset with a seeded match format.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :param format_code: Stable seeded match-format code.
+    :return: None.
+    """
+    # Ruleset association is the sole source of format behavior for its competition.
+    match_format = next(
+        row for row in service.list_match_formats() if row["code"] == format_code
+    )
+    service.repo.rulesets.update(
+        core["ruleset"], {"match_format_id": match_format["id"]}
+    )
+
+
+@pytest.mark.parametrize(
+    ("format_code", "expected_balls", "expected_display"),
+    [
+        ("HUNDRED", 100, "100 balls"),
+        ("T20", 120, "20.0 overs"),
+        ("ODI", 300, "50.0 overs"),
+    ],
+)
+def test_match_format_drives_default_innings_allocation(
+    service: CricketService,
+    core: dict[str, int],
+    format_code: str,
+    expected_balls: int,
+    expected_display: str,
+) -> None:
+    """Resolve each standard format's default allocation in canonical balls.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :param format_code: Seeded match-format code.
+    :param expected_balls: Expected canonical legal-ball allocation.
+    :param expected_display: Expected format-aware allocation display.
+    :return: None.
+    """
+    assign_core_match_format(service, core, format_code)
+
+    # Null match overrides deliberately inherit the selected format definition.
+    assert service.effective_innings_balls(core["match"]) == expected_balls
+    match = next(
+        row for row in service.list_matches() if row["id"] == core["match"]
+    )
+    assert match["effective_delivery_display"] == expected_display
+
+
+def test_reduced_match_allocation_controls_innings_validation(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Apply a reduced T20 allocation and reject deliveries beyond it.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    assign_core_match_format(service, core, "T20")
+    service.save_match(
+        entity_id=core["match"],
+        competition_id=core["competition"],
+        match_date="2026-07-20",
+        venue_id=core["venue"],
+        home_team_id=core["home"],
+        away_team_id=core["away"],
+        scheduled_balls=120,
+        revised_balls=90,
+    )
+
+    assert service.effective_innings_balls(core["match"]) == 90
+    with pytest.raises(ValidationError, match="cannot exceed"):
+        service.save_innings(
+            match_id=core["match"],
+            innings_number=1,
+            batting_team_id=core["home"],
+            bowling_team_id=core["away"],
+            runs=80,
+            wickets=3,
+            balls=91,
+            innings_status="in_progress",
+        )
+
+
+def test_revised_allocation_cannot_exceed_scheduled_allocation(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Reject a revised allocation that increases the scheduled match length.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    assign_core_match_format(service, core, "T20")
+
+    # A reduced allocation may shorten but never lengthen the scheduled innings.
+    with pytest.raises(ValidationError, match="cannot exceed"):
+        service.save_match(
+            entity_id=core["match"],
+            competition_id=core["competition"],
+            match_date="2026-07-20",
+            venue_id=core["venue"],
+            home_team_id=core["home"],
+            away_team_id=core["away"],
+            scheduled_balls=90,
+            revised_balls=96,
+        )
+
+
+def test_all_out_status_requires_every_available_wicket(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Validate the wicket condition represented by an all-out status.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    with pytest.raises(ValidationError, match="every available wicket"):
+        service.save_innings(
+            match_id=core["match"],
+            innings_number=1,
+            batting_team_id=core["home"],
+            bowling_team_id=core["away"],
+            runs=95,
+            wickets=9,
+            balls=72,
+            innings_status="all_out",
+        )
+
+    innings_id = service.save_innings(
+        match_id=core["match"],
+        innings_number=1,
+        batting_team_id=core["home"],
+        bowling_team_id=core["away"],
+        runs=95,
+        wickets=10,
+        balls=72,
+        innings_status="all_out",
+    )
+    # Terminal semantic statuses remain compatible with the legacy completion flag.
+    assert service.repo.innings.get(innings_id)["completed"] == 1
+
+
+def test_target_reached_status_validates_chasing_score(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Require the second innings to meet its explicitly recorded target.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=1,
+        batting_team_id=core["home"],
+        bowling_team_id=core["away"],
+        runs=149,
+        wickets=6,
+        balls=100,
+        innings_status="innings_limit_reached",
+    )
+    with pytest.raises(ValidationError, match="meet or exceed"):
+        service.save_innings(
+            match_id=core["match"],
+            innings_number=2,
+            batting_team_id=core["away"],
+            bowling_team_id=core["home"],
+            runs=149,
+            wickets=4,
+            balls=87,
+            target=150,
+            innings_status="target_reached",
+        )
+
+    innings_id = service.save_innings(
+        match_id=core["match"],
+        innings_number=2,
+        batting_team_id=core["away"],
+        bowling_team_id=core["home"],
+        runs=150,
+        wickets=4,
+        balls=88,
+        target=150,
+        innings_status="target_reached",
+    )
+    assert service.repo.innings.get(innings_id)["innings_status"] == "target_reached"
+
+
+def test_innings_limit_status_requires_full_effective_allocation(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Require an innings-limit status to match the effective allocation.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    with pytest.raises(ValidationError, match="full allocation"):
+        service.save_innings(
+            match_id=core["match"],
+            innings_number=1,
+            batting_team_id=core["home"],
+            bowling_team_id=core["away"],
+            runs=120,
+            wickets=5,
+            balls=99,
+            innings_status="innings_limit_reached",
+        )
 
 
 @pytest.mark.parametrize(
@@ -907,6 +1125,7 @@ def test_planned_innings_import_allows_blank_details(
     assert innings["wickets"] is None
     assert innings["balls"] is None
     assert innings["completed"] == 0
+    assert innings["innings_status"] == "not_started"
 
 
 def test_completed_match_result_is_derived_from_innings(

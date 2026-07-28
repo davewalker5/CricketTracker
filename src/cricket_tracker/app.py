@@ -20,6 +20,7 @@ from cricket_tracker.services import (
     RESULT_METHODS,
     RESULT_TYPES,
     TOSS_DECISIONS,
+    INNINGS_STATUSES,
     CricketService,
     ValidationError,
 )
@@ -396,6 +397,7 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
     """Render match fixture and result maintenance.
 
     :param service: Transaction-scoped service.
+    :param read_only: Whether controls that mutate cricket data are disabled.
     :return: None.
     """
     competitions = service.list_competitions()
@@ -415,6 +417,9 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
         on_change=_reset_match_tab,
     )
     competition_id = competition_options[competition_label]
+    competition = next(
+        row for row in competitions if int(row["id"]) == competition_id
+    )
     matches = service.list_matches(competition_id)
     shared_match_id = st.session_state.get("match_workspace_match_id")
     table_selected = _selectable_match_table(
@@ -423,7 +428,9 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
             ("match_date", "Date"), ("start_time", "Start"),
             ("home_team_name", "Home team"), ("away_team_name", "Away team"),
             ("venue_name", "Venue"), ("match_stage", "Stage"),
-            ("match_status", "Status"), ("winning_team_name", "Winning team"),
+            ("match_status", "Status"),
+            ("effective_delivery_display", "Allocation"),
+            ("winning_team_name", "Winning team"),
             ("result_type", "Result"),
         ],
         shared_match_id,
@@ -519,6 +526,25 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
     )
     # A record-specific form key prevents values from the previous selection being reused.
     form_identity = selected_id if selected_id is not None else "new"
+    limit_unit = str(competition["limit_unit"])
+    balls_per_over = competition.get("balls_per_over")
+    unit_size = int(balls_per_over or 1)
+    allocation_label = "overs" if limit_unit == "overs" else "balls"
+    default_allocation = int(competition["innings_limit"])
+    scheduled_value = (
+        int(selected["scheduled_balls"]) // unit_size
+        if selected and selected.get("scheduled_balls")
+        else default_allocation
+    )
+    revised_value = (
+        int(selected["revised_balls"]) // unit_size
+        if selected and selected.get("revised_balls")
+        else scheduled_value
+    )
+    st.caption(
+        f"Match format: {competition['match_format_name']} — "
+        f"{default_allocation} {allocation_label} per innings."
+    )
     with st.form(f"match_{form_identity}"):
         match_date = st.date_input(
             "Match date *",
@@ -562,6 +588,26 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
                 list(MATCH_STATUSES), selected.get("match_status") if selected else "Scheduled"
             ),
             key=f"match_status_{selected_id}",
+        )
+        allocation_columns = st.columns(2)
+        scheduled_allocation = allocation_columns[0].number_input(
+            f"Scheduled {allocation_label} per innings",
+            min_value=1,
+            value=scheduled_value,
+            key=f"match_scheduled_allocation_{selected_id}",
+        )
+        use_revised_allocation = allocation_columns[1].checkbox(
+            "Use reduced allocation",
+            value=bool(selected and selected.get("revised_balls")),
+            key=f"match_use_revised_allocation_{selected_id}",
+        )
+        revised_allocation = allocation_columns[1].number_input(
+            f"Revised {allocation_label} per innings",
+            min_value=1,
+            max_value=int(scheduled_allocation),
+            value=min(revised_value, int(scheduled_allocation)),
+            disabled=not use_revised_allocation,
+            key=f"match_revised_allocation_{selected_id}",
         )
         participant_options = {
             "Not recorded": None,
@@ -695,6 +741,12 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
                 away_team_id=team_options[away],
                 match_stage=stage,
                 match_status=status,
+                scheduled_balls=int(scheduled_allocation) * unit_size,
+                revised_balls=(
+                    int(revised_allocation) * unit_size
+                    if use_revised_allocation
+                    else None
+                ),
                 toss_winner_team_id=participant_options[toss_winner],
                 toss_decision=None if toss_decision == "Not recorded" else toss_decision,
                 winning_team_id=participant_options[winner] if override_result else None,
@@ -733,6 +785,7 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
     """Render competition, match, and innings maintenance controls.
 
     :param service: Transaction-scoped service.
+    :param read_only: Whether controls that mutate cricket data are disabled.
     :return: None.
     """
     competitions = service.list_competitions()
@@ -796,7 +849,7 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
             ("innings_number", "Innings"), ("batting_team_name", "Batting team"),
             ("bowling_team_name", "Bowling team"), ("runs", "Runs"),
             ("wickets", "Wickets"), ("delivery_display", "Progress"),
-            ("completed", "Completed"),
+            ("innings_status", "Status"),
         ],
         f"innings_editor_{match_id}",
     )
@@ -828,6 +881,10 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
         else "Enter the details for the new innings."
     )
     st.subheader("Edit innings" if selected_innings else "Add innings")
+    st.caption(
+        f"Expected allocation: {match['effective_delivery_display']} "
+        f"({match['match_format_name']})."
+    )
     selected_innings_id = selected_innings["id"] if selected_innings else None
     participant_options: dict[str, int | None] = {
         "Not set": None,
@@ -869,15 +926,27 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
             key=f"innings_wickets_{match_id}_{selected_innings_id}",
         )
         balls = st.number_input(
-            "Balls", min_value=0,
+            "Legal balls", min_value=0,
+            max_value=service.effective_innings_balls(match_id),
             value=int(selected_innings.get("balls") or 0) if selected_innings else 0,
             key=f"innings_balls_{match_id}_{selected_innings_id}",
         )
-        completed = st.checkbox(
-            "Completed",
-            value=bool(selected_innings.get("completed", 0))
-            if selected_innings else False,
-            key=f"innings_completed_{match_id}_{selected_innings_id}",
+        target = st.number_input(
+            "Target (0 if not applicable)",
+            min_value=0,
+            value=int(selected_innings.get("target") or 0)
+            if selected_innings else 0,
+            key=f"innings_target_{match_id}_{selected_innings_id}",
+        )
+        innings_status = st.selectbox(
+            "Innings status",
+            INNINGS_STATUSES,
+            index=_selected_index(
+                list(INNINGS_STATUSES),
+                selected_innings.get("innings_status")
+                if selected_innings else "not_started",
+            ),
+            key=f"innings_status_{match_id}_{selected_innings_id}",
         )
         save_column, delete_column, clear_column = st.columns(3)
         innings_save = save_column.form_submit_button(
@@ -908,7 +977,8 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
                 runs=runs,
                 wickets=wickets,
                 balls=balls,
-                completed=completed,
+                target=target or None,
+                innings_status=innings_status,
             ),
             "Innings saved.",
             service.repo.connection,

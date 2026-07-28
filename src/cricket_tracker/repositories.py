@@ -143,6 +143,7 @@ class CricketRepository:
                 "toss_winner_team_id", "toss_decision", "winning_team_id", "result_type",
                 "result_margin_value", "result_margin_type", "result_method",
                 "result_source", "result_override_reason",
+                "scheduled_balls", "revised_balls",
             ),
         )
         self.innings = Repository(
@@ -151,6 +152,7 @@ class CricketRepository:
             (
                 "match_id", "innings_number", "batting_team_id", "bowling_team_id",
                 "runs", "wickets", "balls", "extras", "target", "completed",
+                "innings_status",
             ),
         )
 
@@ -209,7 +211,9 @@ class CricketRepository:
         rows = self.connection.execute(
             """
             SELECT c.*, x.name AS country_name, r.name AS ruleset_name,
-                   f.code AS match_format_code, f.name AS match_format_name
+                   f.code AS match_format_code, f.name AS match_format_name,
+                   f.innings_per_team, f.limit_unit, f.innings_limit,
+                   f.balls_per_over
             FROM competitions c
             LEFT JOIN countries x ON x.id = c.country_id
             JOIN competition_rulesets r ON r.id = c.ruleset_id
@@ -231,9 +235,13 @@ class CricketRepository:
             f"""
             SELECT m.*, c.name AS competition_name, c.season,
                    v.name AS venue_name, h.name AS home_team_name,
-                   a.name AS away_team_name, w.name AS winning_team_name
+                   a.name AS away_team_name, w.name AS winning_team_name,
+                   f.code AS match_format_code, f.name AS match_format_name,
+                   f.limit_unit, f.innings_limit, f.balls_per_over
             FROM matches m
             JOIN competitions c ON c.id = m.competition_id
+            JOIN competition_rulesets r ON r.id = c.ruleset_id
+            JOIN match_formats f ON f.id = r.match_format_id
             LEFT JOIN venues v ON v.id = m.venue_id
             JOIN teams h ON h.id = m.home_team_id
             JOIN teams a ON a.id = m.away_team_id

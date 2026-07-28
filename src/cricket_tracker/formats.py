@@ -6,6 +6,41 @@ from __future__ import annotations
 LIMIT_UNITS = ("balls", "overs")
 
 
+def legal_balls_for_limit(
+    innings_limit: int,
+    *,
+    limit_unit: str,
+    balls_per_over: int | None,
+) -> int:
+    """Convert a format allocation into canonical legal balls.
+
+    :param innings_limit: Positive allocation expressed in the format's unit.
+    :param limit_unit: Format unit, either ``balls`` or ``overs``.
+    :param balls_per_over: Deliveries in an over for an over-based format.
+    :return: The allocation as a canonical legal-ball count.
+    :raises ValueError: If the allocation or format configuration is invalid.
+    """
+    # Booleans are excluded because an allocation is a genuine whole number.
+    if isinstance(innings_limit, bool) or not isinstance(innings_limit, int):
+        raise ValueError("Innings limit must be a whole number.")
+    if innings_limit <= 0:
+        raise ValueError("Innings limit must be greater than zero.")
+    if limit_unit not in LIMIT_UNITS:
+        raise ValueError("Limit unit must be balls or overs.")
+    if limit_unit == "balls":
+        # A ball-based allocation is already stored in the canonical unit.
+        return innings_limit
+    if (
+        isinstance(balls_per_over, bool)
+        or not isinstance(balls_per_over, int)
+        or balls_per_over <= 0
+    ):
+        raise ValueError("Balls per over must be a positive whole number.")
+
+    # Over allocations contain only complete overs at match level.
+    return innings_limit * balls_per_over
+
+
 def format_delivery_count(
     legal_balls: int,
     *,
