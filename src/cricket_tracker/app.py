@@ -795,7 +795,8 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
         [
             ("innings_number", "Innings"), ("batting_team_name", "Batting team"),
             ("bowling_team_name", "Bowling team"), ("runs", "Runs"),
-            ("wickets", "Wickets"), ("balls", "Balls"), ("completed", "Completed"),
+            ("wickets", "Wickets"), ("delivery_display", "Progress"),
+            ("completed", "Completed"),
         ],
         f"innings_editor_{match_id}",
     )
@@ -931,6 +932,7 @@ def _matches(service: CricketService, read_only: bool = False) -> None:
     """Render separate match and innings maintenance tabs.
 
     :param service: Transaction-scoped service.
+    :param read_only: Whether controls that mutate cricket data are disabled.
     :return: None.
     """
     st.header("Matches")
@@ -1340,6 +1342,7 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
     """Render competition ruleset maintenance.
 
     :param service: Transaction-scoped service.
+    :param read_only: Whether controls that mutate cricket data are disabled.
     :return: None.
     """
     st.header("Rulesets")
@@ -1347,7 +1350,8 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
     selected = _selectable_table(
         rows,
         [
-            ("name", "Name"), ("points_for_win", "Win"), ("points_for_tie", "Tie"),
+            ("name", "Name"), ("match_format_name", "Match format"),
+            ("points_for_win", "Win"), ("points_for_tie", "Tie"),
             ("points_for_no_result", "No result"), ("points_for_loss", "Loss"),
             ("uses_net_run_rate", "Uses NRR"),
             ("include_knockout_matches_in_table", "Includes knockouts"),
@@ -1360,10 +1364,28 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
     st.caption("Select a table row to edit it, or use the blank form to add a new record.")
     st.subheader("Add or edit ruleset")
     selected_id = selected["id"] if selected else None
+    # New rulesets use active formats; every seeded Phase 1 format is active.
+    active_match_formats = service.list_match_formats(active_only=True)
+    match_format_options = _options(active_match_formats)
+    selected_match_format = next(
+        (
+            label for label, match_format_id in match_format_options.items()
+            if selected and match_format_id == selected.get("match_format_id")
+        ),
+        next(iter(match_format_options)),
+    )
     with st.form("ruleset"):
         name = st.text_input(
             "Name *", value=selected.get("name", "") if selected else "",
             key=f"ruleset_name_{selected_id}",
+        )
+        match_format = st.selectbox(
+            "Match format *",
+            list(match_format_options),
+            index=_selected_index(
+                list(match_format_options), selected_match_format
+            ),
+            key=f"ruleset_match_format_{selected_id}",
         )
         points = st.columns(4)
         win_points = points[0].number_input(
@@ -1438,6 +1460,7 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
             lambda: service.save_ruleset(
                 entity_id=selected_id,
                 name=name,
+                match_format_id=match_format_options[match_format],
                 points_for_win=win_points,
                 points_for_tie=tie_points,
                 points_for_no_result=no_result_points,

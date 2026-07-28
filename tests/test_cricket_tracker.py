@@ -12,6 +12,7 @@ import pytest
 from cricket_tracker import app as tracker_app
 from cricket_tracker.cli import streamlit_entrypoint
 from cricket_tracker.exports import DATASETS, export_csv
+from cricket_tracker.formats import format_delivery_count
 from cricket_tracker.imports import CricketImporter
 from cricket_tracker.services import CricketService, ValidationError
 from cricket_tracker.standings import (
@@ -71,6 +72,7 @@ def test_initial_schema_is_cricket_native(connection: sqlite3.Connection) -> Non
         )
     }
     assert {"matches", "innings", "competitions", "competition_rulesets"} <= tables
+    assert "match_formats" in tables
     assert "competition_seasons" not in tables
     assert "referees" not in tables
     columns = {row["name"] for row in connection.execute("PRAGMA table_info(matches)")}
@@ -99,6 +101,124 @@ def test_initial_schema_is_cricket_native(connection: sqlite3.Connection) -> Non
         )
     }
     assert "notes" not in ruleset_columns
+    assert "match_format_id" in ruleset_columns
+
+
+def test_standard_match_formats_are_seeded_and_hundred_is_associated(
+    service: CricketService,
+) -> None:
+    """Verify the format foundation and backward-compatible ruleset association.
+
+    :param service: Cricket service.
+    :return: None.
+    """
+    # Stable codes let later phases select behaviour without inspecting display names.
+    formats = {row["code"]: row for row in service.list_match_formats()}
+
+    assert set(formats) == {"HUNDRED", "T20", "ODI"}
+    assert formats["HUNDRED"]["limit_unit"] == "balls"
+    assert formats["HUNDRED"]["innings_limit"] == 100
+    assert formats["HUNDRED"]["balls_per_over"] is None
+    assert formats["T20"]["innings_limit"] == 20
+    assert formats["T20"]["balls_per_over"] == 6
+    assert formats["ODI"]["innings_limit"] == 50
+    assert service.list_rulesets()[0]["match_format_id"] == formats["HUNDRED"]["id"]
+
+
+@pytest.mark.parametrize(
+    ("legal_balls", "expected"),
+    [
+        (0, "0.0 overs"),
+        (5, "0.5 overs"),
+        (6, "1.0 overs"),
+        (17, "2.5 overs"),
+        (83, "13.5 overs"),
+        (120, "20.0 overs"),
+        (300, "50.0 overs"),
+    ],
+)
+def test_format_delivery_count_uses_cricket_over_notation(
+    legal_balls: int, expected: str
+) -> None:
+    """Convert legal balls into six-ball over notation.
+
+    :param legal_balls: Canonical delivery count.
+    :param expected: Expected cricket notation.
+    :return: None.
+    """
+    # The remainder after complete overs is displayed after the separator.
+    assert format_delivery_count(
+        legal_balls, limit_unit="overs", balls_per_over=6
+    ) == expected
+
+
+def test_format_delivery_count_preserves_hundred_display() -> None:
+    """Keep The Hundred delivery progress expressed in balls.
+
+    :return: None.
+    """
+    # Ball-based formats do not require or use an over size.
+    assert format_delivery_count(
+        69, limit_unit="balls", balls_per_over=None
+    ) == "69 balls"
+
+
+def test_innings_list_uses_its_ruleset_match_format(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Expose format-aware delivery progress for innings presentation.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    t20_format = next(
+        row for row in service.list_match_formats() if row["code"] == "T20"
+    )
+    # Reassociate the fixture ruleset to prove display is driven by format metadata.
+    service.repo.rulesets.update(
+        core["ruleset"], {"match_format_id": t20_format["id"]}
+    )
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=1,
+        batting_team_id=core["home"],
+        bowling_team_id=core["away"],
+        runs=100,
+        wickets=3,
+        balls=83,
+        completed=False,
+    )
+
+    assert service.list_innings(core["match"])[0]["delivery_display"] == "13.5 overs"
+
+
+@pytest.mark.parametrize(
+    ("legal_balls", "limit_unit", "balls_per_over"),
+    [
+        (-1, "balls", None),
+        (12, "sessions", None),
+        (12, "overs", None),
+        (12, "overs", 0),
+    ],
+)
+def test_format_delivery_count_rejects_invalid_values(
+    legal_balls: int, limit_unit: str, balls_per_over: int | None
+) -> None:
+    """Reject invalid delivery counts and format configuration.
+
+    :param legal_balls: Candidate delivery count.
+    :param limit_unit: Candidate limit unit.
+    :param balls_per_over: Candidate over size.
+    :return: None.
+    """
+    # Invalid format metadata must fail early instead of producing misleading output.
+    with pytest.raises(ValueError):
+        format_delivery_count(
+            legal_balls,
+            limit_unit=limit_unit,
+            balls_per_over=balls_per_over,
+        )
 
 
 def test_match_validation(service: CricketService, core: dict[str, int]) -> None:
@@ -693,10 +813,14 @@ def test_innings_view_uses_persistent_tab_selection(
 
     monkeypatch.setattr(tracker_app.st, "radio", select_innings)
     monkeypatch.setattr(
-        tracker_app, "_match_editor_tab", lambda _service: rendered.append("Matches")
+        tracker_app,
+        "_match_editor_tab",
+        lambda _service, _read_only=False: rendered.append("Matches"),
     )
     monkeypatch.setattr(
-        tracker_app, "_innings_editor_tab", lambda _service: rendered.append("Innings")
+        tracker_app,
+        "_innings_editor_tab",
+        lambda _service, _read_only=False: rendered.append("Innings"),
     )
 
     tracker_app._matches(service)

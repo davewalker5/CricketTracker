@@ -101,6 +101,15 @@ class CricketRepository:
         :return: None.
         """
         self.connection = connection
+        self.match_formats = Repository(
+            connection,
+            "match_formats",
+            (
+                "code", "name", "innings_per_team", "limit_unit",
+                "innings_limit", "balls_per_over", "draw_allowed",
+                "tie_allowed", "revised_target_supported", "active",
+            ),
+        )
         self.countries = Repository(connection, "countries", ("name", "code"))
         self.venues = Repository(
             connection, "venues", ("name", "city", "country_id", "capacity")
@@ -117,7 +126,7 @@ class CricketRepository:
                 "name", "points_for_win", "points_for_tie", "points_for_no_result",
                 "points_for_loss", "uses_net_run_rate", "include_knockout_matches_in_table",
                 "table_sort_order", "balls_per_innings", "wickets_per_innings",
-                "balls_per_rate_unit", "combine_gender_tables",
+                "balls_per_rate_unit", "combine_gender_tables", "match_format_id",
             ),
         )
         self.competitions = Repository(
@@ -176,6 +185,22 @@ class CricketRepository:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_rulesets(self) -> list[dict[str, Any]]:
+        """Return rulesets with their match-format labels.
+
+        :return: Enriched competition-ruleset rows.
+        """
+        # Joining here keeps foreign-key identifiers out of presentation code.
+        rows = self.connection.execute(
+            """
+            SELECT r.*, f.code AS match_format_code, f.name AS match_format_name
+            FROM competition_rulesets r
+            JOIN match_formats f ON f.id = r.match_format_id
+            ORDER BY r.name COLLATE NOCASE, r.id
+            """
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def list_competitions(self) -> list[dict[str, Any]]:
         """Return competitions with country and ruleset labels.
 
@@ -183,10 +208,12 @@ class CricketRepository:
         """
         rows = self.connection.execute(
             """
-            SELECT c.*, x.name AS country_name, r.name AS ruleset_name
+            SELECT c.*, x.name AS country_name, r.name AS ruleset_name,
+                   f.code AS match_format_code, f.name AS match_format_name
             FROM competitions c
             LEFT JOIN countries x ON x.id = c.country_id
             JOIN competition_rulesets r ON r.id = c.ruleset_id
+            JOIN match_formats f ON f.id = r.match_format_id
             ORDER BY c.season DESC, c.name COLLATE NOCASE
             """
         ).fetchall()
@@ -228,8 +255,13 @@ class CricketRepository:
         parameters = (match_id,) if match_id is not None else ()
         rows = self.connection.execute(
             f"""
-            SELECT i.*, b.name AS batting_team_name, o.name AS bowling_team_name
+            SELECT i.*, b.name AS batting_team_name, o.name AS bowling_team_name,
+                   f.limit_unit, f.balls_per_over
             FROM innings i
+            JOIN matches m ON m.id = i.match_id
+            JOIN competitions c ON c.id = m.competition_id
+            JOIN competition_rulesets r ON r.id = c.ruleset_id
+            JOIN match_formats f ON f.id = r.match_format_id
             LEFT JOIN teams b ON b.id = i.batting_team_id
             LEFT JOIN teams o ON o.id = i.bowling_team_id
             {where}

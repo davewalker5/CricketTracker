@@ -6,6 +6,7 @@ import sqlite3
 from datetime import date, time
 from typing import Any
 
+from cricket_tracker.formats import format_delivery_count
 from cricket_tracker.repositories import CricketRepository, Repository
 
 
@@ -258,7 +259,19 @@ class CricketService:
 
         :return: Ruleset rows.
         """
-        return self.repo.rulesets.list_all()
+        return self.repo.list_rulesets()
+
+    def list_match_formats(self, active_only: bool = False) -> list[dict[str, Any]]:
+        """List the reusable match formats.
+
+        :param active_only: Whether to omit formats unavailable to new rulesets.
+        :return: Match-format rows in display order.
+        """
+        # Editors normally need active formats while existing records may need all formats.
+        formats = self.repo.match_formats.list_all()
+        if active_only:
+            return [match_format for match_format in formats if match_format["active"]]
+        return formats
 
     def save_ruleset(self, entity_id: int | None = None, **values: Any) -> int:
         """Create or update a competition ruleset.
@@ -302,6 +315,7 @@ class CricketService:
             "combine_gender_tables": int(
                 bool(values.get("combine_gender_tables", False))
             ),
+            "match_format_id": int(values.get("match_format_id", 1)),
         }
         if (
             not data["balls_per_innings"]
@@ -311,6 +325,10 @@ class CricketService:
             raise ValidationError(
                 "Balls, wickets, and balls per rate unit must be greater than zero."
             )
+        # Resolve the reference here so callers receive a domain error rather than SQL text.
+        match_format = self.repo.match_formats.get(data["match_format_id"])
+        if not match_format:
+            raise ValidationError("Select a valid match format.")
         return self._save(self.repo.rulesets, entity_id, data)
 
     def delete_ruleset(self, entity_id: int) -> None:
@@ -485,7 +503,19 @@ class CricketService:
         :param match_id: Optional match filter.
         :return: Enriched innings rows.
         """
-        return self.repo.list_innings(match_id)
+        innings = self.repo.list_innings(match_id)
+        for row in innings:
+            # Draft innings without a delivery count retain a blank progress value.
+            row["delivery_display"] = (
+                format_delivery_count(
+                    int(row["balls"]),
+                    limit_unit=str(row["limit_unit"]),
+                    balls_per_over=row["balls_per_over"],
+                )
+                if row["balls"] is not None
+                else None
+            )
+        return innings
 
     def save_innings(self, entity_id: int | None = None, **values: Any) -> int:
         """Create or update an innings summary.
