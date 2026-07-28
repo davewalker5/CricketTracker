@@ -368,6 +368,43 @@ def test_ui_save_commits_before_requesting_rerun(
     )
 
 
+def test_ui_save_is_blocked_in_read_only_mode(
+    service: CricketService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Do not execute a mutation when a browse-only UI action is received."""
+    errors: list[str] = []
+    action_called = False
+
+    def action() -> None:
+        nonlocal action_called
+        action_called = True
+
+    monkeypatch.setattr(tracker_app.st, "error", errors.append)
+    tracker_app._save(
+        action,
+        "Country saved.",
+        service.repo.connection,
+        read_only=True,
+    )
+
+    assert action_called is False
+    assert errors == ["This application is browse only; changes cannot be saved."]
+
+
+def test_request_host_enables_read_only_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Use the public forwarded host to recognise a configured hosted domain."""
+    context = type(
+        "Context",
+        (),
+        {"headers": {"Host": "internal:8501", "X-Forwarded-Host": "demo.streamlit.app"}},
+    )()
+    monkeypatch.setattr(tracker_app.st, "context", context)
+
+    assert tracker_app._is_read_only_request() is True
+
+
 def test_pending_success_is_displayed_after_rerun(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
