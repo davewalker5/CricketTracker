@@ -10,15 +10,13 @@
 
 Cricket Tracker is a local-first desktop application for recording, following and exploring cricket competitions, fixtures, results, innings summaries and league standings.
 
-The initial release focuses on The Hundred men's and women's competitions. It provides structured season records without attempting to act as a live-scoring service or reproduce complete scorecards and ball-by-ball data.
+The application supports The Hundred, Twenty20 and one-day competitions. It maintains structured season records without attempting to act as a live-scoring service or reproduce complete scorecards or ball-by-ball data.
 
-Built using Python, Streamlit and SQLite, the application emphasises a simple, maintainable design backed by a cricket-specific relational data model. Competition rules are modelled explicitly so that standings, points and net run rate can be calculated consistently from recorded match and innings data.
+Built with Python, Streamlit and SQLite, Cricket Tracker emphasises a simple, maintainable design backed by a cricket-specific relational data model. Competition rules are modelled explicitly so that points, standings and net run rate can be calculated consistently from recorded match and innings data.
 
-Cricket Tracker is based on the established structure of Rugby Tracker but uses its own independent database, configuration and migration history.
+Cricket Tracker is based on the established structure of Rugby Tracker, but uses its own independent database, configuration and migration history.
 
 ## Competition Tracking
-
-Cricket Tracker currently provides:
 
 ### Competition Database
 
@@ -27,11 +25,13 @@ Maintain structured reference data for:
 - Countries
 - Venues
 - Teams
+- Match formats
+- Competition rulesets
 - Competitions
 
 Teams are linked to countries and classified by gender. Venues also reference their host country, providing consistent location and competition data throughout the application.
 
-Competitions are season-specific and define the rules used when calculating league standings.
+Competitions are season-specific and identify the rules used to calculate their league standings.
 
 ### Match Recording
 
@@ -48,10 +48,13 @@ Record fixture and result details including:
 - Result type
 - Result margin
 - Match status
+- Scheduled or reduced innings allocation
+- Original or externally supplied revised target
+- Result method, such as DLS
 
 Rounds may be numeric league stages or descriptive knockout stages such as *Eliminator* and *Final*.
 
-Structured result fields support cricket result types including wins by runs or wickets, ties and no-results.
+Structured result fields support wins by runs or wickets, ties and no results.
 
 ### Innings Summaries
 
@@ -64,21 +67,27 @@ Each innings can include:
 - Runs scored
 - Wickets lost
 - Balls faced
+- Innings status
+- Chasing target, where applicable
 
 This provides enough information to describe the shape and outcome of a match without requiring complete scorecards or ball-by-ball data.
 
 Future fixtures may contain empty innings records that can be completed after the match has taken place.
 
+Legal deliveries are always stored as whole balls. Over-based formats are displayed using cricket notation, so 83 legal balls is shown as `13.5 overs` rather than treated as a decimal value.
+
 ### Automatic Match Results
 
 Where sufficient innings data has been recorded, Cricket Tracker can derive the structured match result automatically.
 
-For completed two-innings matches, the application can determine:
+For completed matches with one innings per team, the application can determine:
 
 - Winning team
 - Whether the match was won by runs or wickets
 - Winning margin
-- Tied result
+- A tied result
+- A no result or abandonment
+- A revised-target result using an externally supplied target
 
 This reduces duplicate manual entry and keeps the recorded result consistent with the innings summaries.
 
@@ -102,22 +111,21 @@ The tracker calculates:
 
 Competition rules determine:
 
-- Points awarded for wins, ties and no-results
+- Points awarded for wins, ties and no results
 - Whether knockout matches contribute to league standings
 - Which stages are treated as knockout rounds
 
-Net run rate is calculated from the recorded innings summaries and displayed alongside the competition standings.
+Net run rate is calculated from completed innings summaries and displayed where enabled by the ruleset. An all-out team is credited with its applicable full allocation. Matches with revised allocations or revised targets are excluded because their competition-specific NRR treatment cannot be derived reliably from the stored summary data.
 
-## Supported Competitions
+## Supported Match Formats
 
-The initial release supports:
+Cricket Tracker supports one innings per team in:
 
-- The Hundred Men
-- The Hundred Women
+- The Hundred, with innings progress displayed in legal balls
+- Twenty20 cricket, normally 20 six-ball overs
+- One-day cricket, normally 50 six-ball overs
 
-Men's and women's competitions are modelled separately while sharing the same teams, venues and competition-management structure where appropriate.
-
-Additional competitions can be added as their formats, points systems and standings rules are established.
+The default allocation comes from the selected match format and may be shortened for an individual match. Competition rules remain separate from match formats, allowing different T20 or ODI competitions to define their own points, standings, tie-break and revised-target behaviour.
 
 ## Data Exchange
 
@@ -128,27 +136,29 @@ Import structured data from CSV files for:
 - Countries
 - Venues
 - Teams
+- Competition rulesets
 - Competitions
 - Matches
 - Innings
 
 Match and innings data are imported separately.
 
-The match import contains the fixture-level information, including competition, teams, venue, schedule, toss and result details.
+The match import contains fixture-level information, including the competition, teams, venue, schedule, toss and result details.
 
-The innings import contains the associated batting summaries. Future fixtures may therefore be imported with empty innings shells and completed later as results become available.
+The innings import contains the associated batting summaries. Future fixtures can therefore be imported with empty innings shells and completed later as results become available.
 
 Imports resolve related entities using names and other identifying fields while validating the required relationships between competitions, matches, teams and venues.
 
 The same data can be imported from the command line:
 
 ```bash
-cricket-import --type matches --input matches.csv
+cricket-import matches matches.csv
 ```
 
-Supported types are:
+Supported dataset types are:
 
 - `countries`
+- `competition_rulesets`
 - `competitions`
 - `venues`
 - `teams`
@@ -163,29 +173,31 @@ The convenience wrapper accepts the same values:
 
 ### CSV Export
 
-Export the application's structured data using the same schemas accepted by CSV Import.
+Export the application's structured data using the same schemas accepted by CSV import.
 
 Available exports include:
 
 - Countries
 - Venues
 - Teams
+- Competition rulesets
 - Competitions
 - Matches
 - Innings
 - Calculated league tables
 
-Match and innings exports remain separate so fixture-level information can be maintained independently from innings summaries.
+Match and innings exports remain separate so that fixture-level information can be maintained independently from innings summaries.
 
 The same data can be exported from the command line:
 
 ```bash
-cricket-export --type matches --output matches.csv
+cricket-export matches.csv --dataset matches
 ```
 
-Supported types are:
+Supported dataset types are:
 
 - `countries`
+- `competition_rulesets`
 - `competitions`
 - `venues`
 - `teams`
@@ -198,31 +210,46 @@ The convenience wrapper accepts the same values:
 ./scripts/export.sh matches matches.csv
 ```
 
-CSV export makes the recorded competition data available for spreadsheets, Jupyter notebooks and other external analysis tools.
+CSV export makes recorded competition data available to spreadsheets, Jupyter notebooks and other external analysis tools.
+
+### Limited-Overs CSV Fields
+
+Match CSV files support the optional fields `scheduled_balls`, `revised_balls`, `target_runs`, `revised_target_runs` and `result_method`.
+
+Innings CSV files retain `balls` as the canonical legal-delivery count and add `innings_status`. Overs must not be encoded as decimal numbers.
+
+All new columns are optional, so legacy Hundred CSV files remain importable. Where an allocation is omitted, the default for the selected match format is used.
+
+### Sample Data
+
+Self-contained examples are available in:
+
+- `data/samples/T20-EXAMPLE-2026`
+- `data/samples/ODI-EXAMPLE-2026`
+
+Import each folder in dependency order:
+
+1. `countries.csv`
+2. `venues.csv`
+3. `teams.csv`
+4. `competition_rulesets.csv`
+5. `competitions.csv`
+6. `matches.csv`
+7. `innings.csv`
+
+The ODI example records an authoritative revised target and a DLS result method. Cricket Tracker uses the supplied target but does not calculate DLS.
 
 ### CSV League Table Export
 
-Calculated league tables can be exported in CSV format for offline reference or sharing.
+Calculated league tables can be exported in CSV format for offline reference, sharing or further analysis.
 
 The output is generated from the same dynamically calculated standings displayed in the application.
-
-## Database Configuration
-
-Cricket Tracker uses an independent SQLite database controlled by the `CRICKET_TRACKER_DB` environment variable.
-
-For example:
-
-```bash
-export CRICKET_TRACKER_DB=/path/to/cricket-tracker.db
-```
-
-If the environment variable is not set, the application uses its configured fallback database location.
 
 ## Project Scope
 
 Cricket Tracker is intended as a personal competition and results tracker rather than a comprehensive cricket scoring platform.
 
-The initial release deliberately does not attempt to provide:
+The application deliberately does not attempt to provide:
 
 - Ball-by-ball scoring
 - Batting scorecards
@@ -232,12 +259,16 @@ The initial release deliberately does not attempt to provide:
 - Player statistics
 - Live match feeds
 - Automated data collection from external services
+- Test or first-class cricket
+- Multiple innings per team
+- Declarations, follow-ons or innings victories
+- Automatic DLS calculations
 
 The focus is on maintaining a clear, useful and inspectable record of competitions, fixtures, results, innings summaries and standings.
 
 ## Feedback
 
-To file issues or suggestions, please use the [Issues](https://github.com/davewalker5/CricketTracker/issues) page for this project on GitHub.
+To report an issue or suggest an improvement, please use the project's [GitHub Issues](https://github.com/davewalker5/CricketTracker/issues) page.
 
 ## License
 

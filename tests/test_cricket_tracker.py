@@ -11,6 +11,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from cricket_tracker.database import apply_migrations
+
 from cricket_tracker import app as tracker_app
 from cricket_tracker.cli import streamlit_entrypoint
 from cricket_tracker.exports import DATASETS, export_csv
@@ -23,6 +25,26 @@ from cricket_tracker.standings import (
     combined_competition_ids,
     table_to_csv,
 )
+
+
+def test_migrations_do_not_print_sql_results(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Keep routine SQLite migration result sets out of startup output.
+
+    :param tmp_path: Pytest temporary directory.
+    :param capsys: Pytest standard-stream capture helper.
+    :return: None.
+    """
+    database = tmp_path / "quiet-migrations.db"
+
+    # A fresh database exercises every migration, including SQLite checks that
+    # Yoyo would otherwise render as SQL headings and empty result tables.
+    apply_migrations(database)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "quick_check" not in captured.err
 
 
 def test_streamlit_entrypoint_is_packaged() -> None:
