@@ -1062,9 +1062,12 @@ def _standings(service: CricketService) -> None:
     :return: None.
     """
     st.header("League table")
-    competitions = service.list_competitions()
+    # Knockout-only rulesets remain available elsewhere without a misleading table.
+    competitions = [
+        row for row in service.list_competitions() if bool(row["has_standings"])
+    ]
     if not competitions:
-        st.info("Add a competition first.")
+        st.info("No competition is configured to provide a standings table.")
         return
     options: dict[str, tuple[str, int]] = {
         f"{row['name']} — {row['season']}": ("single", int(row["id"]))
@@ -1091,7 +1094,13 @@ def _standings(service: CricketService) -> None:
         if table_type == "combined"
         else calculate_standings(service.repo.connection, competition_id)
     )
-    columns = ["team", "played", "won", "lost", "tied", "no_result", "points", "net_run_rate"]
+    columns = ["team", "played", "won", "lost", "tied", "no_result", "points"]
+    if any(row.get("net_run_rate") is not None for row in table):
+        columns.append("net_run_rate")
+        st.caption(
+            "Net run rate uses completed, unrevised matches. "
+            "Revised-allocation and revised-target matches are excluded."
+        )
     st.dataframe(pd.DataFrame(table, columns=columns), hide_index=True, width="stretch")
     # Export the already calculated rows so the download exactly matches this view.
     st.download_button(
@@ -1457,7 +1466,9 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
         [
             ("name", "Name"), ("match_format_name", "Match format"),
             ("points_for_win", "Win"), ("points_for_tie", "Tie"),
-            ("points_for_no_result", "No result"), ("points_for_loss", "Loss"),
+            ("points_for_no_result", "No result"),
+            ("points_for_abandonment", "Abandoned"),
+            ("points_for_loss", "Loss"), ("has_standings", "Standings"),
             ("uses_net_run_rate", "Uses NRR"),
             ("include_knockout_matches_in_table", "Includes knockouts"),
             ("balls_per_innings", "Balls"), ("wickets_per_innings", "Wickets"),
@@ -1492,7 +1503,7 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
             ),
             key=f"ruleset_match_format_{selected_id}",
         )
-        points = st.columns(4)
+        points = st.columns(5)
         win_points = points[0].number_input(
             "Win points", min_value=0,
             value=int(selected.get("points_for_win", 2)) if selected else 2,
@@ -1508,14 +1519,26 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
             value=int(selected.get("points_for_no_result", 1)) if selected else 1,
             key=f"ruleset_nr_{selected_id}",
         )
-        loss_points = points[3].number_input(
+        abandonment_points = points[3].number_input(
+            "Abandonment points", min_value=0,
+            value=int(selected.get("points_for_abandonment", 1))
+            if selected else 1,
+            key=f"ruleset_abandoned_{selected_id}",
+        )
+        loss_points = points[4].number_input(
             "Loss points", min_value=0,
             value=int(selected.get("points_for_loss", 0)) if selected else 0,
             key=f"ruleset_loss_{selected_id}",
         )
+        has_standings = st.checkbox(
+            "Provide a standings table",
+            value=bool(selected.get("has_standings", 1)) if selected else True,
+            key=f"ruleset_has_standings_{selected_id}",
+        )
         use_nrr = st.checkbox(
             "Use net run rate",
             value=bool(selected.get("uses_net_run_rate", 1)) if selected else True,
+            disabled=not has_standings,
             key=f"ruleset_nrr_{selected_id}",
         )
         include_knockouts = st.checkbox(
@@ -1529,6 +1552,24 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
             value=bool(selected.get("combine_gender_tables", 0))
             if selected else False,
             key=f"ruleset_combined_{selected_id}",
+        )
+        outcome_options = st.columns(3)
+        ties_may_stand = outcome_options[0].checkbox(
+            "Ties may stand",
+            value=bool(selected.get("ties_may_stand", 1)) if selected else True,
+            key=f"ruleset_ties_stand_{selected_id}",
+        )
+        tie_break_winner_allowed = outcome_options[1].checkbox(
+            "Allow tie-break winner",
+            value=bool(selected.get("tie_break_winner_allowed", 1))
+            if selected else True,
+            key=f"ruleset_tie_break_{selected_id}",
+        )
+        revised_targets_allowed = outcome_options[2].checkbox(
+            "Allow revised targets",
+            value=bool(selected.get("revised_targets_allowed", 1))
+            if selected else True,
+            key=f"ruleset_revised_targets_{selected_id}",
         )
         allocation = st.columns(3)
         balls = allocation[0].number_input(
@@ -1569,10 +1610,15 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
                 points_for_win=win_points,
                 points_for_tie=tie_points,
                 points_for_no_result=no_result_points,
+                points_for_abandonment=abandonment_points,
                 points_for_loss=loss_points,
+                has_standings=has_standings,
                 uses_net_run_rate=use_nrr,
                 include_knockout_matches_in_table=include_knockouts,
                 combine_gender_tables=combine_genders,
+                ties_may_stand=ties_may_stand,
+                tie_break_winner_allowed=tie_break_winner_allowed,
+                revised_targets_allowed=revised_targets_allowed,
                 balls_per_innings=balls,
                 wickets_per_innings=wickets,
                 balls_per_rate_unit=rate_unit,

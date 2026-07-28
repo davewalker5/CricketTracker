@@ -127,6 +127,8 @@ class CricketRepository:
                 "points_for_loss", "uses_net_run_rate", "include_knockout_matches_in_table",
                 "table_sort_order", "balls_per_innings", "wickets_per_innings",
                 "balls_per_rate_unit", "combine_gender_tables", "match_format_id",
+                "points_for_abandonment", "has_standings", "ties_may_stand",
+                "tie_break_winner_allowed", "revised_targets_allowed",
             ),
         )
         self.competitions = Repository(
@@ -214,7 +216,7 @@ class CricketRepository:
             SELECT c.*, x.name AS country_name, r.name AS ruleset_name,
                    f.code AS match_format_code, f.name AS match_format_name,
                    f.innings_per_team, f.limit_unit, f.innings_limit,
-                   f.balls_per_over
+                   f.balls_per_over, r.has_standings, r.uses_net_run_rate
             FROM competitions c
             LEFT JOIN countries x ON x.id = c.country_id
             JOIN competition_rulesets r ON r.id = c.ruleset_id

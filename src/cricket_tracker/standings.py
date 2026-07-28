@@ -8,6 +8,8 @@ import sqlite3
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from cricket_tracker.formats import legal_balls_for_limit
+
 
 @dataclass
 class Standing:
@@ -48,12 +50,17 @@ def _competition_configuration(
     row = connection.execute(
         """
         SELECT c.*, r.points_for_win, r.points_for_tie, r.points_for_no_result,
-               r.points_for_loss, r.uses_net_run_rate,
+               r.points_for_abandonment, r.points_for_loss,
+               r.uses_net_run_rate, r.has_standings,
                r.include_knockout_matches_in_table, r.table_sort_order,
                r.balls_per_innings, r.wickets_per_innings,
-               r.balls_per_rate_unit, r.combine_gender_tables
+               r.balls_per_rate_unit, r.combine_gender_tables,
+               r.ties_may_stand, r.tie_break_winner_allowed,
+               r.revised_targets_allowed, f.limit_unit, f.innings_limit,
+               f.balls_per_over
         FROM competitions c
         JOIN competition_rulesets r ON r.id = c.ruleset_id
+        JOIN match_formats f ON f.id = r.match_format_id
         WHERE c.id = ?
         """,
         (competition_id,),
@@ -88,17 +95,23 @@ def _competition_teams(
     return {int(row["id"]): Standing(int(row["id"]), str(row["name"])) for row in rows}
 
 
-def _credited_balls(innings: sqlite3.Row, ruleset: dict[str, Any]) -> int:
+def _credited_balls(
+    innings: sqlite3.Row,
+    ruleset: dict[str, Any],
+    innings_allocation: int,
+) -> int:
     """Return balls used for net-run-rate calculation.
 
     Cricket convention credits an all-out batting side with its full allocation.
 
     :param innings: Raw innings row.
     :param ruleset: Governing competition ruleset.
+    :param innings_allocation: Applicable full innings allocation in legal balls.
     :return: Balls used in the rate denominator.
     """
     if int(innings["wickets"]) >= int(ruleset["wickets_per_innings"]):
-        return int(ruleset["balls_per_innings"])
+        # All-out teams are credited with the match's allocation, not time actually used.
+        return innings_allocation
     return int(innings["balls"])
 
 
@@ -186,6 +199,9 @@ def calculate_standings(
     :return: Ordered standings rows.
     """
     ruleset = _competition_configuration(connection, competition_id)
+    if not bool(ruleset["has_standings"]):
+        # Knockout-only competitions deliberately have no league table.
+        return []
     standings = _competition_teams(connection, competition_id)
     stage_clause = (
         ""
@@ -201,6 +217,7 @@ def calculate_standings(
               m.match_status IN ('Completed', 'No Result', 'Abandoned')
               OR m.result_type IN ('No Result', 'Abandoned')
           )
+          AND m.result_type IS NOT NULL
           {stage_clause}
         ORDER BY m.match_date, m.id
         """,
@@ -214,16 +231,32 @@ def calculate_standings(
         home.played += 1
         away.played += 1
         result_type = match["result_type"]
-        if result_type == "Tie":
+        if (
+            result_type == "Tie"
+            and match["winning_team_id"] in (home.team_id, away.team_id)
+        ):
+            # A recorded tie-break winner receives the ordinary win/loss allocation.
+            winner = home if match["winning_team_id"] == home.team_id else away
+            loser = away if winner is home else home
+            winner.won += 1
+            loser.lost += 1
+            winner.points += int(ruleset["points_for_win"])
+            loser.points += int(ruleset["points_for_loss"])
+        elif result_type == "Tie":
             home.tied += 1
             away.tied += 1
             home.points += int(ruleset["points_for_tie"])
             away.points += int(ruleset["points_for_tie"])
-        elif result_type in {"No Result", "Abandoned"}:
+        elif result_type == "No Result":
             home.no_result += 1
             away.no_result += 1
             home.points += int(ruleset["points_for_no_result"])
             away.points += int(ruleset["points_for_no_result"])
+        elif result_type == "Abandoned":
+            home.no_result += 1
+            away.no_result += 1
+            home.points += int(ruleset["points_for_abandonment"])
+            away.points += int(ruleset["points_for_abandonment"])
         elif match["winning_team_id"] in (home.team_id, away.team_id):
             winner = home if match["winning_team_id"] == home.team_id else away
             loser = away if winner is home else home
@@ -236,14 +269,30 @@ def calculate_standings(
             "SELECT * FROM innings WHERE match_id = ? ORDER BY innings_number",
             (match["id"],),
         ).fetchall()
-        # Only complete two-sided score data contributes to net run rate.
-        if _innings_count_for_nrr(innings_rows):
+        ordinary_rate_match = (
+            bool(ruleset["uses_net_run_rate"])
+            and result_type not in {"No Result", "Abandoned"}
+            and match["revised_balls"] is None
+            and match["revised_target_runs"] is None
+        )
+        # Revised and exceptional matches are excluded until their NRR rules are known.
+        if ordinary_rate_match and _innings_count_for_nrr(innings_rows):
+            format_allocation = legal_balls_for_limit(
+                int(ruleset["innings_limit"]),
+                limit_unit=str(ruleset["limit_unit"]),
+                balls_per_over=ruleset["balls_per_over"],
+            )
+            innings_allocation = int(
+                match["scheduled_balls"] or format_allocation
+            )
             for innings in innings_rows[:2]:
                 batting = standings.get(int(innings["batting_team_id"]))
                 bowling = standings.get(int(innings["bowling_team_id"]))
                 if batting is None or bowling is None:
                     continue
-                credited_balls = _credited_balls(innings, ruleset)
+                credited_balls = _credited_balls(
+                    innings, ruleset, innings_allocation
+                )
                 batting.runs_for += int(innings["runs"])
                 batting.balls_faced += credited_balls
                 bowling.runs_against += int(innings["runs"])
@@ -333,8 +382,11 @@ def table_to_csv(table: list[dict[str, Any]]) -> str:
     """
     output = io.StringIO()
     fieldnames = [
-        "team", "played", "won", "lost", "tied", "no_result", "points", "net_run_rate"
+        "team", "played", "won", "lost", "tied", "no_result", "points"
     ]
+    if any(row.get("net_run_rate") is not None for row in table):
+        # CSV output mirrors the UI and omits a rate the ruleset does not calculate.
+        fieldnames.append("net_run_rate")
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
     for row in table:

@@ -676,6 +676,258 @@ def test_manual_super_over_winner_overrides_calculated_tie(
     ) == "Match tied; London Spirit Men won the Super Over"
 
 
+def test_abandonment_uses_its_own_ruleset_points(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Award abandonment points independently from no-result points.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    service.repo.rulesets.update(
+        core["ruleset"],
+        {"points_for_no_result": 1, "points_for_abandonment": 3},
+    )
+    service.save_match(
+        entity_id=core["match"],
+        competition_id=core["competition"],
+        match_date="2026-07-20",
+        venue_id=core["venue"],
+        home_team_id=core["home"],
+        away_team_id=core["away"],
+        match_status="Abandoned",
+    )
+
+    # Both teams receive the competition's explicit abandonment allocation.
+    table = calculate_standings(
+        service.repo.connection, core["competition"]
+    )
+    assert all(row["points"] == 3 for row in table)
+    assert all(row["no_result"] == 1 for row in table)
+
+
+def test_tie_break_winner_receives_win_points_in_standings(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Treat an official Super Over winner as a win rather than a standing tie.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    service.save_innings(
+        match_id=core["match"], innings_number=1,
+        batting_team_id=core["home"], bowling_team_id=core["away"],
+        runs=150, wickets=7, balls=100, completed=True,
+    )
+    service.save_innings(
+        match_id=core["match"], innings_number=2,
+        batting_team_id=core["away"], bowling_team_id=core["home"],
+        runs=150, wickets=8, balls=100, completed=True,
+    )
+    service.save_match(
+        entity_id=core["match"],
+        competition_id=core["competition"],
+        match_date="2026-07-20",
+        venue_id=core["venue"],
+        home_team_id=core["home"],
+        away_team_id=core["away"],
+        match_status="Completed",
+        winning_team_id=core["home"],
+        result_type="Tie",
+        result_method="Super Over",
+        result_source="Manual",
+        result_override_reason="Official Super Over result.",
+    )
+
+    table = calculate_standings(
+        service.repo.connection, core["competition"]
+    )
+    winner = next(row for row in table if row["team_id"] == core["home"])
+    loser = next(row for row in table if row["team_id"] == core["away"])
+    assert winner["won"] == 1 and winner["tied"] == 0
+    assert loser["lost"] == 1 and loser["tied"] == 0
+    assert winner["points"] == 4
+
+
+def test_knockout_only_ruleset_has_no_standings(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Suppress standings for a competition whose ruleset opts out.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    service.repo.rulesets.update(core["ruleset"], {"has_standings": 0})
+
+    # A knockout-only competition returns no rows instead of a misleading table.
+    assert calculate_standings(
+        service.repo.connection, core["competition"]
+    ) == []
+
+
+def test_t20_nrr_credits_an_all_out_team_with_full_allocation(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Use the T20 allocation for an early all-out NRR denominator.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    assign_core_match_format(service, core, "T20")
+    # This test reuses the Hundred ruleset, so adopt the T20 six-ball rate unit.
+    service.repo.rulesets.update(core["ruleset"], {"balls_per_rate_unit": 6})
+    service.save_innings(
+        match_id=core["match"], innings_number=1,
+        batting_team_id=core["home"], bowling_team_id=core["away"],
+        runs=120, wickets=10, balls=60, innings_status="all_out",
+    )
+    service.save_innings(
+        match_id=core["match"], innings_number=2,
+        batting_team_id=core["away"], bowling_team_id=core["home"],
+        runs=121, wickets=0, balls=60, innings_status="target_reached",
+    )
+
+    table = calculate_standings(
+        service.repo.connection, core["competition"]
+    )
+    home = next(row for row in table if row["team_id"] == core["home"])
+    away = next(row for row in table if row["team_id"] == core["away"])
+    # Home: 120 from credited 120 balls; away: 121 from 60 balls.
+    assert home["net_run_rate"] == -6.1
+    assert away["net_run_rate"] == 6.1
+
+
+def test_revised_target_match_is_excluded_from_nrr(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Avoid presenting partial NRR for a revised-target match.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    assign_core_match_format(service, core, "T20")
+    service.save_innings(
+        match_id=core["match"], innings_number=1,
+        batting_team_id=core["home"], bowling_team_id=core["away"],
+        runs=160, wickets=6, balls=120,
+        innings_status="innings_limit_reached",
+    )
+    service.save_match(
+        entity_id=core["match"], competition_id=core["competition"],
+        match_date="2026-07-20", venue_id=core["venue"],
+        home_team_id=core["home"], away_team_id=core["away"],
+        scheduled_balls=120, revised_balls=60,
+        revised_target_runs=80, result_method="DLS",
+    )
+    service.save_innings(
+        match_id=core["match"], innings_number=2,
+        batting_team_id=core["away"], bowling_team_id=core["home"],
+        runs=81, wickets=3, balls=55, innings_status="target_reached",
+    )
+
+    table = calculate_standings(
+        service.repo.connection, core["competition"]
+    )
+    assert all(row["played"] == 1 for row in table)
+    assert all(row["net_run_rate"] is None for row in table)
+    assert "net_run_rate" not in table_to_csv(table).splitlines()[0]
+
+
+def test_ruleset_restrictions_are_enforced_for_match_outcomes(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Reject revised targets and tie-break winners disabled by a ruleset.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    service.repo.rulesets.update(
+        core["ruleset"],
+        {
+            "revised_targets_allowed": 0,
+            "tie_break_winner_allowed": 0,
+        },
+    )
+    with pytest.raises(ValidationError, match="revised targets"):
+        service.save_match(
+            entity_id=core["match"], competition_id=core["competition"],
+            match_date="2026-07-20", venue_id=core["venue"],
+            home_team_id=core["home"], away_team_id=core["away"],
+            revised_target_runs=80, result_method="DLS",
+        )
+    with pytest.raises(ValidationError, match="tie-break winner"):
+        service.save_match(
+            entity_id=core["match"], competition_id=core["competition"],
+            match_date="2026-07-20", venue_id=core["venue"],
+            home_team_id=core["home"], away_team_id=core["away"],
+            match_status="Completed", winning_team_id=core["home"],
+            result_type="Tie", result_method="Super Over",
+            result_source="Manual", result_override_reason="Official result.",
+        )
+
+
+def test_non_standing_tie_awaits_an_official_tie_break(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Withhold an official tied result when the ruleset requires a tie-break.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    service.repo.rulesets.update(core["ruleset"], {"ties_may_stand": 0})
+    service.save_innings(
+        match_id=core["match"], innings_number=1,
+        batting_team_id=core["home"], bowling_team_id=core["away"],
+        runs=130, wickets=7, balls=100, completed=True,
+    )
+    service.save_innings(
+        match_id=core["match"], innings_number=2,
+        batting_team_id=core["away"], bowling_team_id=core["home"],
+        runs=130, wickets=8, balls=100, completed=True,
+    )
+
+    # The score fact remains calculable, but no official table result exists yet.
+    assert service.derive_match_result(core["match"])["result_type"] == "Tie"
+    assert service.repo.matches.get(core["match"])["result_type"] is None
+    table = calculate_standings(
+        service.repo.connection, core["competition"]
+    )
+    assert all(row["played"] == 0 for row in table)
+
+
+def test_disabling_nrr_removes_it_from_ranking_and_export(
+    service: CricketService,
+) -> None:
+    """Keep a disabled NRR criterion out of sort configuration and CSV output.
+
+    :param service: Cricket service.
+    :return: None.
+    """
+    match_format_id = next(
+        row["id"] for row in service.list_match_formats() if row["code"] == "T20"
+    )
+    ruleset_id = service.save_ruleset(
+        name="NRR-free T20",
+        match_format_id=match_format_id,
+        uses_net_run_rate=False,
+        table_sort_order="points,net_run_rate,wins",
+    )
+
+    ruleset = service.repo.rulesets.get(ruleset_id)
+    assert ruleset["uses_net_run_rate"] == 0
+    assert ruleset["table_sort_order"] == "points,wins"
+    assert table_to_csv(
+        [{"team": "Example", "played": 0, "points": 0, "net_run_rate": None}]
+    ).splitlines()[0] == "team,played,won,lost,tied,no_result,points"
+
+
 @pytest.mark.parametrize(
     ("legal_balls", "limit_unit", "balls_per_over"),
     [

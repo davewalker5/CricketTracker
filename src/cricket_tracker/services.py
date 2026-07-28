@@ -303,6 +303,13 @@ class CricketService:
             raise ValidationError(
                 "Table sort order may contain points, net_run_rate, wins, and name."
             )
+        uses_net_run_rate = bool(values.get("uses_net_run_rate", True))
+        has_standings = bool(values.get("has_standings", True))
+        if not uses_net_run_rate:
+            # Disabled calculations cannot remain as a misleading ranking criterion.
+            fields = [field for field in fields if field != "net_run_rate"]
+            if not fields:
+                fields = ["points", "wins", "name"]
         data = {
             "name": required_text(values.get("name"), "Ruleset name"),
             "points_for_win": non_negative(values.get("points_for_win", 2), "Points for win"),
@@ -310,8 +317,15 @@ class CricketService:
             "points_for_no_result": non_negative(
                 values.get("points_for_no_result", 1), "Points for no result"
             ),
+            "points_for_abandonment": non_negative(
+                values.get(
+                    "points_for_abandonment",
+                    values.get("points_for_no_result", 1),
+                ),
+                "Points for abandonment",
+            ),
             "points_for_loss": non_negative(values.get("points_for_loss", 0), "Points for loss"),
-            "uses_net_run_rate": int(bool(values.get("uses_net_run_rate", True))),
+            "uses_net_run_rate": int(uses_net_run_rate and has_standings),
             "include_knockout_matches_in_table": int(
                 bool(values.get("include_knockout_matches_in_table", False))
             ),
@@ -327,6 +341,14 @@ class CricketService:
             ),
             "combine_gender_tables": int(
                 bool(values.get("combine_gender_tables", False))
+            ),
+            "has_standings": int(has_standings),
+            "ties_may_stand": int(bool(values.get("ties_may_stand", True))),
+            "tie_break_winner_allowed": int(
+                bool(values.get("tie_break_winner_allowed", True))
+            ),
+            "revised_targets_allowed": int(
+                bool(values.get("revised_targets_allowed", True))
             ),
             "match_format_id": int(values.get("match_format_id", 1)),
         }
@@ -424,7 +446,8 @@ class CricketService:
         # A single join keeps match allocation validation driven by persisted metadata.
         row = self.repo.connection.execute(
             """
-            SELECT r.wickets_per_innings, f.*
+            SELECT r.wickets_per_innings, r.ties_may_stand,
+                   r.tie_break_winner_allowed, r.revised_targets_allowed, f.*
             FROM competitions c
             JOIN competition_rulesets r ON r.id = c.ruleset_id
             JOIN match_formats f ON f.id = r.match_format_id
@@ -608,11 +631,27 @@ class CricketService:
             )
         if (
             revised_target_runs is not None
-            and not bool(conditions["revised_target_supported"])
+            and (
+                not bool(conditions["revised_target_supported"])
+                or not bool(conditions["revised_targets_allowed"])
+            )
         ):
             raise ValidationError(
-                "The selected match format does not support revised targets."
+                "The selected ruleset does not support revised targets."
             )
+        if (
+            result_type == "Tie"
+            and winning_team not in (None, "")
+            and not bool(conditions["tie_break_winner_allowed"])
+        ):
+            raise ValidationError("This ruleset does not allow a tie-break winner.")
+        if (
+            result_source == "Manual"
+            and result_type == "Tie"
+            and winning_team in (None, "")
+            and not bool(conditions["ties_may_stand"])
+        ):
+            raise ValidationError("This ruleset does not allow a tie to stand.")
         data = {
             "competition_id": competition_id,
             "match_date": valid_date(values.get("match_date"), "Match date"),
@@ -931,6 +970,15 @@ class CricketService:
         # A manual official result remains authoritative until the user removes it.
         if match.get("result_source") == "Manual":
             return calculated
+        ruleset = self._ruleset_for_match(match_id)
+        official_result = calculated
+        if (
+            calculated
+            and calculated["result_type"] == "Tie"
+            and not bool(ruleset["ties_may_stand"])
+        ):
+            # Preserve the derived tie for comparison while awaiting an official tie-break.
+            official_result = None
         empty_result = {
             "winning_team_id": None,
             "result_type": None,
@@ -944,7 +992,7 @@ class CricketService:
             "result_source": None,
             "result_override_reason": None,
         }
-        self.repo.matches.update(match_id, calculated or empty_result)
+        self.repo.matches.update(match_id, official_result or empty_result)
         return calculated
 
     def _ruleset_for_match(self, match_id: int) -> dict[str, Any]:
