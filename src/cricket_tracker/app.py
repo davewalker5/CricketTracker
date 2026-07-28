@@ -571,34 +571,36 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
         f"{default_allocation} {allocation_label} per innings."
     )
     with st.form(f"match_{form_identity}"):
-        match_date = st.date_input(
+        fixture_columns = st.columns(3)
+        match_date = fixture_columns[0].date_input(
             "Match date *",
             date.fromisoformat(selected["match_date"]) if selected else date.today(),
             key=f"match_date_{selected_id}",
         )
-        start_time = st.text_input(
+        start_time = fixture_columns[1].text_input(
             "Start time", value=selected.get("start_time") or "" if selected else "",
             placeholder="HH:MM", key=f"match_time_{selected_id}",
         )
-        venue = st.selectbox(
+        venue = fixture_columns[2].selectbox(
             "Venue",
             venue_labels,
             index=_selected_index(venue_labels, selected_venue),
             key=f"match_venue_{selected_id}",
         )
-        home = st.selectbox(
+        participant_columns = st.columns(3)
+        home = participant_columns[0].selectbox(
             "Home team *",
             team_labels,
             index=_selected_index(team_labels, selected_home),
             key=f"match_home_{selected_id}",
         )
-        away = st.selectbox(
+        away = participant_columns[1].selectbox(
             "Away team *",
             team_labels,
             index=_selected_index(team_labels, selected_away),
             key=f"match_away_{selected_id}",
         )
-        stage = st.selectbox(
+        stage = participant_columns[2].selectbox(
             "Match stage *",
             MATCH_STAGES,
             index=_selected_index(
@@ -606,7 +608,14 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
             ),
             key=f"match_stage_{selected_id}",
         )
-        status = st.selectbox(
+        allocation_option_columns = st.columns(3)
+        use_revised_allocation = allocation_option_columns[2].checkbox(
+            "Use reduced allocation",
+            value=bool(selected and selected.get("revised_balls")),
+            key=f"match_use_revised_allocation_{selected_id}",
+        )
+        allocation_columns = st.columns(3)
+        status = allocation_columns[0].selectbox(
             "Match status *",
             MATCH_STATUSES,
             index=_selected_index(
@@ -614,32 +623,25 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
             ),
             key=f"match_status_{selected_id}",
         )
-        allocation_option_columns = st.columns(2)
-        use_revised_allocation = allocation_option_columns[1].checkbox(
-            "Use reduced allocation",
-            value=bool(selected and selected.get("revised_balls")),
-            key=f"match_use_revised_allocation_{selected_id}",
-        )
-        allocation_columns = st.columns(2)
-        scheduled_allocation = allocation_columns[0].number_input(
+        scheduled_allocation = allocation_columns[1].number_input(
             f"Scheduled {allocation_label} per innings",
             value=scheduled_value,
             key=f"match_scheduled_allocation_{selected_id}",
         )
-        revised_allocation = allocation_columns[1].number_input(
+        revised_allocation = allocation_columns[2].number_input(
             f"Revised {allocation_label} per innings",
             value=revised_value,
             disabled=not use_revised_allocation,
             key=f"match_revised_allocation_{selected_id}",
         )
         # Targets are authoritative inputs; the application never calculates DLS.
-        target_option_columns = st.columns(2)
+        target_option_columns = st.columns(3)
         use_revised_target = target_option_columns[1].checkbox(
             "Use revised target",
             value=bool(selected and selected.get("revised_target_runs")),
             key=f"match_use_revised_target_{selected_id}",
         )
-        target_columns = st.columns(2)
+        target_columns = st.columns(3)
         original_target = target_columns[0].number_input(
             "Original target (0 to derive from first innings)",
             value=int(selected.get("target_runs") or 0) if selected else 0,
@@ -652,7 +654,7 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
             disabled=not use_revised_target,
             key=f"match_revised_target_{selected_id}",
         )
-        calculation_method = st.selectbox(
+        calculation_method = target_columns[2].selectbox(
             "Calculation method",
             RESULT_METHODS,
             index=_selected_index(
@@ -675,14 +677,15 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
             ),
             "Not recorded",
         )
-        toss_winner = st.selectbox(
+        match_outcome_columns = st.columns(3)
+        toss_winner = match_outcome_columns[0].selectbox(
             "Toss winner",
             participant_labels,
             index=_selected_index(participant_labels, selected_toss),
             key=f"match_toss_winner_{selected_id}",
         )
         toss_choices = ["Not recorded", *TOSS_DECISIONS]
-        toss_decision = st.selectbox(
+        toss_decision = match_outcome_columns[1].selectbox(
             "Toss decision",
             toss_choices,
             index=_selected_index(
@@ -700,13 +703,14 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
         result_choices = ["Not recorded", *RESULT_TYPES]
         if override_result:
             # Manual mode uses editable fields whose values are explicitly saved.
-            winner = st.selectbox(
+            winner = match_outcome_columns[2].selectbox(
                 "Winning team",
                 participant_labels,
                 index=_selected_index(participant_labels, selected_winner),
                 key=f"match_winner_{selected_id}",
             )
-            result = st.selectbox(
+            result_columns = st.columns(3)
+            result = result_columns[0].selectbox(
                 "Result type",
                 result_choices,
                 index=_selected_index(
@@ -715,12 +719,12 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
                 ),
                 key=f"match_result_{selected_id}",
             )
-            margin = st.number_input(
+            margin = result_columns[1].number_input(
                 "Result margin",
                 value=int(selected.get("result_margin_value") or 0) if selected else 0,
                 key=f"match_margin_{selected_id}",
             )
-            method = st.selectbox(
+            method = result_columns[2].selectbox(
                 "Result method",
                 RESULT_METHODS,
                 index=_selected_index(
@@ -747,26 +751,27 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
                 if selected
                 else "new"
             )
-            st.text_input(
+            match_outcome_columns[2].text_input(
                 "Winning team",
                 value=selected_winner,
                 disabled=True,
                 key=f"match_calculated_winner_{result_revision}",
             )
-            st.text_input(
+            result_columns = st.columns(3)
+            result_columns[0].text_input(
                 "Result type",
                 value=result,
                 disabled=True,
                 key=f"match_calculated_result_{result_revision}",
             )
-            st.number_input(
+            result_columns[1].number_input(
                 "Result margin",
                 min_value=0,
                 value=margin,
                 disabled=True,
                 key=f"match_calculated_margin_{result_revision}",
             )
-            st.text_input(
+            result_columns[2].text_input(
                 "Result method",
                 value=method,
                 disabled=True,
@@ -853,7 +858,8 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
     competition_options = {
         f"{row['name']} — {row['season']}": int(row["id"]) for row in competitions
     }
-    competition_label = st.selectbox(
+    workspace_columns = st.columns(2)
+    competition_label = workspace_columns[0].selectbox(
         "Competition",
         competition_options,
         key="match_workspace_competition",
@@ -884,7 +890,7 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
     match_widget_key = (
         f"innings_match_{competition_id}_{shared_match_id or 'default'}"
     )
-    match_label = st.selectbox(
+    match_label = workspace_columns[1].selectbox(
         "Match",
         match_options,
         index=selected_match_index,
@@ -965,44 +971,20 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
     )
     _show_persistent_error(innings_error_key)
     with st.form(f"innings-{match_id}-{innings_form_identity}"):
-        number = st.number_input(
+        innings_detail_columns = st.columns(3)
+        number = innings_detail_columns[0].number_input(
             "Innings number",
             value=int(selected_innings.get("innings_number", len(innings) + 1))
             if selected_innings else len(innings) + 1,
             key=f"innings_number_{match_id}_{selected_innings_id}",
         )
-        batting = st.selectbox(
+        batting = innings_detail_columns[1].selectbox(
             "Batting team",
             participant_labels,
             index=_selected_index(participant_labels, selected_batting),
             key=f"innings_batting_{match_id}_{selected_innings_id}",
         )
-        runs = st.number_input(
-            "Runs",
-            value=int(selected_innings.get("runs") or 0) if selected_innings else 0,
-            key=f"innings_runs_{match_id}_{selected_innings_id}",
-        )
-        wickets = st.number_input(
-            "Wickets",
-            value=int(selected_innings.get("wickets") or 0) if selected_innings else 0,
-            key=f"innings_wickets_{match_id}_{selected_innings_id}",
-        )
-        balls = st.number_input(
-            "Legal balls",
-            value=int(selected_innings.get("balls") or 0) if selected_innings else 0,
-            help=(
-                "Enter canonical legal balls. Values above the displayed "
-                "allocation are rejected when you save."
-            ),
-            key=f"innings_balls_{match_id}_{selected_innings_id}",
-        )
-        target = st.number_input(
-            "Target (0 if not applicable)",
-            value=int(selected_innings.get("target") or 0)
-            if selected_innings else 0,
-            key=f"innings_target_{match_id}_{selected_innings_id}",
-        )
-        innings_status = st.selectbox(
+        innings_status = innings_detail_columns[2].selectbox(
             "Innings status",
             INNINGS_STATUSES,
             index=_selected_index(
@@ -1011,6 +993,33 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
                 if selected_innings else "not_started",
             ),
             key=f"innings_status_{match_id}_{selected_innings_id}",
+        )
+        score_columns = st.columns(3)
+        runs = score_columns[0].number_input(
+            "Runs",
+            value=int(selected_innings.get("runs") or 0) if selected_innings else 0,
+            key=f"innings_runs_{match_id}_{selected_innings_id}",
+        )
+        wickets = score_columns[1].number_input(
+            "Wickets",
+            value=int(selected_innings.get("wickets") or 0) if selected_innings else 0,
+            key=f"innings_wickets_{match_id}_{selected_innings_id}",
+        )
+        balls = score_columns[2].number_input(
+            "Legal balls",
+            value=int(selected_innings.get("balls") or 0) if selected_innings else 0,
+            help=(
+                "Enter canonical legal balls. Values above the displayed "
+                "allocation are rejected when you save."
+            ),
+            key=f"innings_balls_{match_id}_{selected_innings_id}",
+        )
+        target_columns = st.columns(3)
+        target = target_columns[0].number_input(
+            "Target (0 if not applicable)",
+            value=int(selected_innings.get("target") or 0)
+            if selected_innings else 0,
+            key=f"innings_target_{match_id}_{selected_innings_id}",
         )
         save_column, delete_column, clear_column = st.columns(3)
         innings_save = save_column.form_submit_button(
