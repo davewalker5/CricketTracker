@@ -53,6 +53,18 @@ def _show_pending_success() -> None:
         st.success(message)
 
 
+def _show_persistent_error(error_key: str) -> None:
+    """Display a record-specific validation error without consuming it.
+
+    :param error_key: Session-state key holding the validation message.
+    :return: None.
+    """
+    message = st.session_state.get(error_key)
+    if message:
+        # Table-selection reruns must not erase an error before the user can read it.
+        st.error(str(message))
+
+
 def _is_read_only_request() -> bool:
     """Return whether the current request is served from a browse-only domain.
 
@@ -93,18 +105,27 @@ def _save(
     message: str,
     connection: sqlite3.Connection,
     read_only: bool = False,
+    error_key: str | None = None,
 ) -> None:
     """Run a UI mutation and show its safe outcome.
 
     :param action: Zero-argument mutation.
     :param message: Success message.
     :param connection: Open connection containing the mutation transaction.
+    :param read_only: Whether the current application domain prohibits mutations.
+    :param error_key: Optional session-state key used to persist validation errors.
     :return: None.
     """
     if read_only:
         connection.rollback()
-        st.error("This application is browse only; changes cannot be saved.")
+        error_message = "This application is browse only; changes cannot be saved."
+        if error_key:
+            st.session_state[error_key] = error_message
+        st.error(error_message)
         return
+    if error_key:
+        # A new attempt supersedes the previous validation message for this record.
+        st.session_state.pop(error_key, None)
     try:
         action()
         # Persist the mutation before Streamlit interrupts execution for its rerun.
@@ -114,6 +135,8 @@ def _save(
     except (ValidationError, sqlite3.IntegrityError, LookupError) as error:
         # Discard any writes performed before a multi-step validation failed.
         connection.rollback()
+        if error_key:
+            st.session_state[error_key] = str(error)
         st.error(str(error))
 
 
@@ -526,6 +549,8 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
     )
     # A record-specific form key prevents values from the previous selection being reused.
     form_identity = selected_id if selected_id is not None else "new"
+    match_error_key = f"match_save_error_{form_identity}"
+    _show_persistent_error(match_error_key)
     limit_unit = str(competition["limit_unit"])
     balls_per_over = competition.get("balls_per_over")
     unit_size = int(balls_per_over or 1)
@@ -592,7 +617,6 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
         allocation_columns = st.columns(2)
         scheduled_allocation = allocation_columns[0].number_input(
             f"Scheduled {allocation_label} per innings",
-            min_value=1,
             value=scheduled_value,
             key=f"match_scheduled_allocation_{selected_id}",
         )
@@ -603,9 +627,7 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
         )
         revised_allocation = allocation_columns[1].number_input(
             f"Revised {allocation_label} per innings",
-            min_value=1,
-            max_value=int(scheduled_allocation),
-            value=min(revised_value, int(scheduled_allocation)),
+            value=revised_value,
             disabled=not use_revised_allocation,
             key=f"match_revised_allocation_{selected_id}",
         )
@@ -613,7 +635,6 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
         target_columns = st.columns(2)
         original_target = target_columns[0].number_input(
             "Original target (0 to derive from first innings)",
-            min_value=0,
             value=int(selected.get("target_runs") or 0) if selected else 0,
             key=f"match_original_target_{selected_id}",
         )
@@ -624,7 +645,6 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
         )
         revised_target = target_columns[1].number_input(
             "Revised target",
-            min_value=1,
             value=int(selected.get("revised_target_runs") or 1)
             if selected else 1,
             disabled=not use_revised_target,
@@ -695,7 +715,6 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
             )
             margin = st.number_input(
                 "Result margin",
-                min_value=0,
                 value=int(selected.get("result_margin_value") or 0) if selected else 0,
                 key=f"match_margin_{selected_id}",
             )
@@ -799,6 +818,7 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
             "Match saved.",
             service.repo.connection,
             read_only,
+            error_key=match_error_key,
         )
     elif delete_clicked and selected_id is not None:
         st.session_state["match_workspace_match_id"] = None
@@ -811,6 +831,7 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
         )
     elif clear_clicked:
         # Closing the editor returns the tab to its deliberately empty state.
+        st.session_state.pop(match_error_key, None)
         st.session_state["match_editor_new"] = False
         st.session_state["match_workspace_match_id"] = None
         _clear_editor("match_editor")
@@ -937,9 +958,13 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
     innings_form_identity = (
         selected_innings_id if selected_innings_id is not None else "new"
     )
+    innings_error_key = (
+        f"innings_save_error_{match_id}_{innings_form_identity}"
+    )
+    _show_persistent_error(innings_error_key)
     with st.form(f"innings-{match_id}-{innings_form_identity}"):
         number = st.number_input(
-            "Innings number", min_value=1,
+            "Innings number",
             value=int(selected_innings.get("innings_number", len(innings) + 1))
             if selected_innings else len(innings) + 1,
             key=f"innings_number_{match_id}_{selected_innings_id}",
@@ -951,24 +976,26 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
             key=f"innings_batting_{match_id}_{selected_innings_id}",
         )
         runs = st.number_input(
-            "Runs", min_value=0,
+            "Runs",
             value=int(selected_innings.get("runs") or 0) if selected_innings else 0,
             key=f"innings_runs_{match_id}_{selected_innings_id}",
         )
         wickets = st.number_input(
-            "Wickets", min_value=0, max_value=10,
+            "Wickets",
             value=int(selected_innings.get("wickets") or 0) if selected_innings else 0,
             key=f"innings_wickets_{match_id}_{selected_innings_id}",
         )
         balls = st.number_input(
-            "Legal balls", min_value=0,
-            max_value=service.effective_innings_balls(match_id),
+            "Legal balls",
             value=int(selected_innings.get("balls") or 0) if selected_innings else 0,
+            help=(
+                "Enter canonical legal balls. Values above the displayed "
+                "allocation are rejected when you save."
+            ),
             key=f"innings_balls_{match_id}_{selected_innings_id}",
         )
         target = st.number_input(
             "Target (0 if not applicable)",
-            min_value=0,
             value=int(selected_innings.get("target") or 0)
             if selected_innings else 0,
             key=f"innings_target_{match_id}_{selected_innings_id}",
@@ -1018,6 +1045,7 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
             "Innings saved.",
             service.repo.connection,
             read_only,
+            error_key=innings_error_key,
         )
     elif innings_delete and selected_innings_id is not None:
         _delete(
@@ -1029,6 +1057,7 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
         )
     elif innings_clear:
         # Closing the editor restores the deliberate no-selection state.
+        st.session_state.pop(innings_error_key, None)
         st.session_state[new_innings_key] = False
         _clear_editor(innings_editor_key)
 
@@ -1127,6 +1156,8 @@ def _countries(service: CricketService, read_only: bool = False) -> None:
     st.caption("Select a table row to edit it, or use the blank form to add a new record.")
     st.subheader("Add or edit country")
     selected_id = selected["id"] if selected else None
+    country_error_key = f"country_save_error_{selected_id or 'new'}"
+    _show_persistent_error(country_error_key)
     with st.form("country"):
         name = st.text_input(
             "Name *", value=selected.get("name", "") if selected else "",
@@ -1150,6 +1181,7 @@ def _countries(service: CricketService, read_only: bool = False) -> None:
             "Country saved.",
             service.repo.connection,
             read_only,
+            error_key=country_error_key,
         )
     elif delete_clicked and selected_id is not None:
         _delete(
@@ -1160,6 +1192,7 @@ def _countries(service: CricketService, read_only: bool = False) -> None:
             read_only,
         )
     elif clear_clicked:
+        st.session_state.pop(country_error_key, None)
         _clear_editor("country_editor")
 
 
@@ -1183,6 +1216,8 @@ def _venues(service: CricketService, read_only: bool = False) -> None:
     st.caption("Select a table row to edit it, or use the blank form to add a new record.")
     st.subheader("Add or edit venue")
     selected_id = selected["id"] if selected else None
+    venue_error_key = f"venue_save_error_{selected_id or 'new'}"
+    _show_persistent_error(venue_error_key)
     country_labels = list(country_options)
     selected_country = next(
         (
@@ -1208,7 +1243,6 @@ def _venues(service: CricketService, read_only: bool = False) -> None:
         )
         capacity = st.number_input(
             "Capacity",
-            min_value=0,
             value=int(selected.get("capacity") or 0) if selected else 0,
             key=f"venue_capacity_{selected_id}",
         )
@@ -1232,6 +1266,7 @@ def _venues(service: CricketService, read_only: bool = False) -> None:
             "Venue saved.",
             service.repo.connection,
             read_only,
+            error_key=venue_error_key,
         )
     elif delete_clicked and selected_id is not None:
         _delete(
@@ -1242,6 +1277,7 @@ def _venues(service: CricketService, read_only: bool = False) -> None:
             read_only,
         )
     elif clear_clicked:
+        st.session_state.pop(venue_error_key, None)
         _clear_editor("venue_editor")
 
 
@@ -1269,6 +1305,8 @@ def _teams(service: CricketService, read_only: bool = False) -> None:
     st.caption("Select a table row to edit it, or use the blank form to add a new record.")
     st.subheader("Add or edit team")
     selected_id = selected["id"] if selected else None
+    team_error_key = f"team_save_error_{selected_id or 'new'}"
+    _show_persistent_error(team_error_key)
     country_labels = list(country_options)
     venue_labels = list(venue_options)
     selected_country = next(
@@ -1328,6 +1366,7 @@ def _teams(service: CricketService, read_only: bool = False) -> None:
             "Team saved.",
             service.repo.connection,
             read_only,
+            error_key=team_error_key,
         )
     elif delete_clicked and selected_id is not None:
         _delete(
@@ -1338,6 +1377,7 @@ def _teams(service: CricketService, read_only: bool = False) -> None:
             read_only,
         )
     elif clear_clicked:
+        st.session_state.pop(team_error_key, None)
         _clear_editor("team_editor")
 
 
@@ -1365,6 +1405,8 @@ def _competitions(service: CricketService, read_only: bool = False) -> None:
         st.info("Add a ruleset before creating a competition.")
         return
     selected_id = selected["id"] if selected else None
+    competition_error_key = f"competition_save_error_{selected_id or 'new'}"
+    _show_persistent_error(competition_error_key)
     country_labels = list(country_options)
     ruleset_labels = list(ruleset_options)
     selected_country = next(
@@ -1439,6 +1481,7 @@ def _competitions(service: CricketService, read_only: bool = False) -> None:
             "Competition saved.",
             service.repo.connection,
             read_only,
+            error_key=competition_error_key,
         )
     elif delete_clicked and selected_id is not None:
         _delete(
@@ -1449,6 +1492,7 @@ def _competitions(service: CricketService, read_only: bool = False) -> None:
             read_only,
         )
     elif clear_clicked:
+        st.session_state.pop(competition_error_key, None)
         _clear_editor("competition_editor")
 
 
@@ -1480,6 +1524,8 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
     st.caption("Select a table row to edit it, or use the blank form to add a new record.")
     st.subheader("Add or edit ruleset")
     selected_id = selected["id"] if selected else None
+    ruleset_error_key = f"ruleset_save_error_{selected_id or 'new'}"
+    _show_persistent_error(ruleset_error_key)
     # New rulesets use active formats; every seeded Phase 1 format is active.
     active_match_formats = service.list_match_formats(active_only=True)
     match_format_options = _options(active_match_formats)
@@ -1505,28 +1551,28 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
         )
         points = st.columns(5)
         win_points = points[0].number_input(
-            "Win points", min_value=0,
+            "Win points",
             value=int(selected.get("points_for_win", 2)) if selected else 2,
             key=f"ruleset_win_{selected_id}",
         )
         tie_points = points[1].number_input(
-            "Tie points", min_value=0,
+            "Tie points",
             value=int(selected.get("points_for_tie", 1)) if selected else 1,
             key=f"ruleset_tie_{selected_id}",
         )
         no_result_points = points[2].number_input(
-            "No-result points", min_value=0,
+            "No-result points",
             value=int(selected.get("points_for_no_result", 1)) if selected else 1,
             key=f"ruleset_nr_{selected_id}",
         )
         abandonment_points = points[3].number_input(
-            "Abandonment points", min_value=0,
+            "Abandonment points",
             value=int(selected.get("points_for_abandonment", 1))
             if selected else 1,
             key=f"ruleset_abandoned_{selected_id}",
         )
         loss_points = points[4].number_input(
-            "Loss points", min_value=0,
+            "Loss points",
             value=int(selected.get("points_for_loss", 0)) if selected else 0,
             key=f"ruleset_loss_{selected_id}",
         )
@@ -1573,17 +1619,17 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
         )
         allocation = st.columns(3)
         balls = allocation[0].number_input(
-            "Balls per innings", min_value=1,
+            "Balls per innings",
             value=int(selected.get("balls_per_innings", 100)) if selected else 100,
             key=f"ruleset_balls_{selected_id}",
         )
         wickets = allocation[1].number_input(
-            "Wickets per innings", min_value=1,
+            "Wickets per innings",
             value=int(selected.get("wickets_per_innings", 10)) if selected else 10,
             key=f"ruleset_wickets_{selected_id}",
         )
         rate_unit = allocation[2].number_input(
-            "Balls per rate unit", min_value=1,
+            "Balls per rate unit",
             value=int(selected.get("balls_per_rate_unit", 6)) if selected else 6,
             key=f"ruleset_rate_unit_{selected_id}",
         )
@@ -1627,6 +1673,7 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
             "Ruleset saved.",
             service.repo.connection,
             read_only,
+            error_key=ruleset_error_key,
         )
     elif delete_clicked and selected_id is not None:
         _delete(
@@ -1637,6 +1684,7 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
             read_only,
         )
     elif clear_clicked:
+        st.session_state.pop(ruleset_error_key, None)
         _clear_editor("ruleset_editor")
 
 

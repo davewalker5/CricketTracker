@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import sqlite3
+import ast
 from pathlib import Path
 
 import pandas as pd
@@ -1363,6 +1364,112 @@ def test_pending_success_is_displayed_after_rerun(
 
     assert displayed == ["Innings saved."]
     assert "_pending_success" not in session_state
+
+
+def test_innings_validation_error_survives_table_rerun(
+    service: CricketService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Persist a record validation error across Streamlit table reruns.
+
+    :param service: Cricket service.
+    :param monkeypatch: Pytest attribute patching helper.
+    :return: None.
+    """
+    session_state: dict[str, str] = {}
+    displayed: list[str] = []
+    error_key = "innings_save_error_1_new"
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+    monkeypatch.setattr(tracker_app.st, "error", displayed.append)
+
+    def reject_innings() -> None:
+        """Represent format-aware innings validation failing.
+
+        :return: None.
+        :raises ValidationError: Always, with a representative allocation error.
+        """
+        # The UI helper must retain domain errors raised before any save can commit.
+        raise ValidationError("Legal balls cannot exceed the match allocation of 120.")
+
+    tracker_app._save(
+        reject_innings,
+        "Innings saved.",
+        service.repo.connection,
+        error_key=error_key,
+    )
+    tracker_app._show_persistent_error(error_key)
+
+    assert session_state[error_key] == (
+        "Legal balls cannot exceed the match allocation of 120."
+    )
+    assert displayed == [session_state[error_key], session_state[error_key]]
+
+
+def test_negative_runs_reach_service_validation_and_are_not_saved(
+    service: CricketService,
+    core: dict[str, int],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject negative runs instead of allowing the widget to clamp them.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :param monkeypatch: Pytest attribute patching helper.
+    :return: None.
+    """
+    session_state: dict[str, str] = {}
+    displayed: list[str] = []
+    error_key = "innings_save_error_1_new"
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+    monkeypatch.setattr(tracker_app.st, "error", displayed.append)
+
+    tracker_app._save(
+        lambda: service.save_innings(
+            match_id=core["match"],
+            innings_number=1,
+            batting_team_id=core["home"],
+            bowling_team_id=core["away"],
+            runs=-1,
+            wickets=0,
+            balls=1,
+            innings_status="in_progress",
+        ),
+        "Innings saved.",
+        service.repo.connection,
+        error_key=error_key,
+    )
+
+    assert session_state[error_key] == (
+        "Runs must be a whole number of zero or more."
+    )
+    assert displayed == [session_state[error_key]]
+    assert service.list_innings(core["match"]) == []
+
+
+def test_editable_numeric_controls_do_not_silently_clamp_domain_values() -> None:
+    """Keep validation bounds out of editable numeric widgets.
+
+    :return: None.
+    """
+    source = Path(tracker_app.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    bounded_editable_controls: list[int] = []
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "number_input"
+        ):
+            continue
+        keywords = {keyword.arg: keyword.value for keyword in node.keywords}
+        disabled = keywords.get("disabled")
+        is_read_only = (
+            isinstance(disabled, ast.Constant) and disabled.value is True
+        )
+        # Read-only calculated displays may retain harmless presentation bounds.
+        if not is_read_only and {"min_value", "max_value"} & set(keywords):
+            bounded_editable_controls.append(node.lineno)
+
+    assert bounded_editable_controls == []
 
 
 def test_export_dataset_change_resets_custom_file_stem(
