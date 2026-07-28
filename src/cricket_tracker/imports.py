@@ -358,6 +358,12 @@ class CricketImporter:
             result_method=row.get("result_method"),
             result_source=row.get("result_source"),
             result_override_reason=row.get("result_override_reason"),
+            scheduled_balls=_optional_integer(row.get("scheduled_balls")),
+            revised_balls=_optional_integer(row.get("revised_balls")),
+            target_runs=_optional_integer(row.get("target_runs")),
+            revised_target_runs=_optional_integer(
+                row.get("revised_target_runs")
+            ),
             _defer_completion_validation=True,
         )
 
@@ -439,4 +445,5 @@ class CricketImporter:
             extras=_optional_integer(row.get("extras")),
             target=_optional_integer(row.get("target")),
             completed=_boolean(row.get("completed")),
+            innings_status=row.get("innings_status"),
         )

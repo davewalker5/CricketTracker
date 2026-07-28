@@ -58,7 +58,9 @@ EXPORT_QUERIES = {
                m.match_stage, m.match_status, tw.name AS toss_winner,
                m.toss_decision, w.name AS winning_team, m.result_type,
                m.result_margin_value, m.result_margin_type, m.result_method,
-               m.result_source, m.result_override_reason
+               m.result_source, m.result_override_reason,
+               m.scheduled_balls, m.revised_balls,
+               m.target_runs, m.revised_target_runs
         FROM matches m
         JOIN competitions c ON c.id = m.competition_id
         LEFT JOIN venues v ON v.id = m.venue_id
@@ -72,7 +74,8 @@ EXPORT_QUERIES = {
         SELECT c.name AS competition, c.season, m.match_date,
                h.name AS home_team, a.name AS away_team, i.innings_number,
                b.name AS batting_team, o.name AS bowling_team, i.runs,
-               i.wickets, i.balls, i.extras, i.target, i.completed
+               i.wickets, i.balls, i.extras, i.target, i.completed,
+               i.innings_status
         FROM innings i
         JOIN matches m ON m.id = i.match_id
         JOIN competitions c ON c.id = m.competition_id

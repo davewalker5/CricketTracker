@@ -1,0 +1,3 @@
+competition,season,match_date,home_team,away_team,innings_number,batting_team,bowling_team,runs,wickets,balls,extras,target,completed,innings_status
+Example ODI League,2026,2026-07-10,Sample Blues,Sample Greens,1,Sample Blues,Sample Greens,250,8,300,,,1,innings_limit_reached
+Example ODI League,2026,2026-07-10,Sample Blues,Sample Greens,2,Sample Greens,Sample Blues,181,5,170,,,1,target_reached

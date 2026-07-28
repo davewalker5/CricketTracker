@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import sqlite3
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -1105,7 +1106,91 @@ def test_csv_exports_separate_matches_and_innings(
         service.repo.connection, "innings"
     ).splitlines()[0].split(",")
     assert "notes" not in innings_header
+    assert "innings_status" in innings_header
+    match_header = match_export.splitlines()[0].split(",")
+    assert {
+        "scheduled_balls", "revised_balls", "target_runs", "revised_target_runs",
+    } <= set(match_header)
     assert set(DATASETS) >= {"matches", "innings"}
+
+
+def import_dataset_folder(
+    service: CricketService, folder: Path
+) -> dict[str, object]:
+    """Import one self-contained CSV folder in dependency order.
+
+    :param service: Cricket service.
+    :param folder: Folder containing the supported dataset files.
+    :return: Import results keyed by dataset name.
+    """
+    order = (
+        "countries", "venues", "teams", "competition_rulesets",
+        "competitions", "matches", "innings",
+    )
+    results: dict[str, object] = {}
+    for dataset in order:
+        # Every sample follows the same order users can apply through the CLI.
+        results[dataset] = CricketImporter(
+            service.repo.connection
+        ).import_csv(dataset, (folder / f"{dataset}.csv").read_bytes())
+    return results
+
+
+@pytest.mark.parametrize(
+    ("folder_name", "format_code", "result_type", "result_method"),
+    [
+        ("T20-EXAMPLE-2026", "T20", "Runs", "Standard"),
+        ("ODI-EXAMPLE-2026", "ODI", "Wickets", "DLS"),
+    ],
+)
+def test_limited_overs_sample_dataset_imports_end_to_end(
+    service: CricketService,
+    folder_name: str,
+    format_code: str,
+    result_type: str,
+    result_method: str,
+) -> None:
+    """Import a sample competition and calculate its expected result.
+
+    :param service: Cricket service.
+    :param folder_name: Sample dataset folder.
+    :param format_code: Expected match-format code.
+    :param result_type: Expected calculated result type.
+    :param result_method: Expected calculated result method.
+    :return: None.
+    """
+    folder = Path(__file__).parents[1] / "data" / "samples" / folder_name
+    results = import_dataset_folder(service, folder)
+
+    assert all(not result.errors for result in results.values())
+    competition = service.list_competitions()[0]
+    match = service.list_matches(int(competition["id"]))[0]
+    assert competition["match_format_code"] == format_code
+    assert match["result_type"] == result_type
+    assert match["result_method"] == result_method
+    assert len(service.list_innings(int(match["id"]))) == 2
+
+
+def test_updated_hundred_import_folders_remain_compatible(
+    service: CricketService,
+) -> None:
+    """Import both maintained Hundred datasets with their extended schemas.
+
+    :param service: Cricket service.
+    :return: None.
+    """
+    imports_root = Path(__file__).parents[1] / "data" / "imports"
+    all_results = []
+    for folder_name in ("HUNDRED-MEN-2026", "HUNDRED-WOMEN-2026"):
+        # Shared reference rows may skip on the second folder, but none may fail.
+        all_results.extend(
+            import_dataset_folder(
+                service, imports_root / folder_name
+            ).values()
+        )
+
+    assert all(not result.errors for result in all_results)
+    assert len(service.list_competitions()) == 2
 
 
 def test_csv_exports_can_be_filtered_by_competition(
