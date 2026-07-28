@@ -9,7 +9,7 @@ from typing import Any, Callable
 import pandas as pd
 import streamlit as st
 
-from cricket_tracker.config import application_version
+from cricket_tracker.config import application_version, is_read_only_domain
 from cricket_tracker.database import apply_migrations, connect
 from cricket_tracker.exports import DATASETS, export_csv
 from cricket_tracker.imports import CricketImporter
@@ -52,6 +52,18 @@ def _show_pending_success() -> None:
         st.success(message)
 
 
+def _is_read_only_request() -> bool:
+    """Return whether the current request is served from a browse-only domain.
+
+    :return: ``True`` when the request host matches the configured domain list.
+    """
+    headers = st.context.headers
+    # The public host may be forwarded by a deployment proxy. Only the first
+    # value is relevant when a proxy chain has appended multiple hosts.
+    hostname = headers.get("X-Forwarded-Host") or headers.get("Host")
+    return is_read_only_domain(hostname.split(",", 1)[0] if hostname else None)
+
+
 def _options(rows: list[dict[str, Any]], label: str = "name") -> dict[str, int]:
     """Map display names to entity identifiers.
 
@@ -79,6 +91,7 @@ def _save(
     action: Callable[[], Any],
     message: str,
     connection: sqlite3.Connection,
+    read_only: bool = False,
 ) -> None:
     """Run a UI mutation and show its safe outcome.
 
@@ -87,6 +100,10 @@ def _save(
     :param connection: Open connection containing the mutation transaction.
     :return: None.
     """
+    if read_only:
+        connection.rollback()
+        st.error("This application is browse only; changes cannot be saved.")
+        return
     try:
         action()
         # Persist the mutation before Streamlit interrupts execution for its rerun.
@@ -104,6 +121,7 @@ def _delete(
     editor_key: str,
     message: str,
     connection: sqlite3.Connection,
+    read_only: bool = False,
 ) -> None:
     """Run a delete action and reset its editor after success.
 
@@ -113,6 +131,10 @@ def _delete(
     :param connection: Open connection containing the mutation transaction.
     :return: None.
     """
+    if read_only:
+        connection.rollback()
+        st.error("This application is browse only; records cannot be deleted.")
+        return
     try:
         action()
         # Commit before rerunning so closing the interrupted connection cannot undo deletion.
@@ -370,7 +392,7 @@ def _selectable_match_table(
     )
 
 
-def _match_editor_tab(service: CricketService) -> None:
+def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
     """Render match fixture and result maintenance.
 
     :param service: Transaction-scoped service.
@@ -424,7 +446,7 @@ def _match_editor_tab(service: CricketService) -> None:
     add_clicked = st.button(
         "Add match",
         key="match_editor_add",
-        disabled=bool(selected),
+        disabled=bool(selected) or read_only,
     )
     if add_clicked:
         # Reset the table selection before displaying controls for a new record.
@@ -654,10 +676,10 @@ def _match_editor_tab(service: CricketService) -> None:
             )
         save_column, delete_column, clear_column = st.columns(3)
         save_clicked = save_column.form_submit_button(
-            "Save", type="primary", width="stretch"
+            "Save", type="primary", disabled=read_only, width="stretch"
         )
         delete_clicked = delete_column.form_submit_button(
-            "Delete", disabled=selected is None, width="stretch"
+            "Delete", disabled=selected is None or read_only, width="stretch"
         )
         clear_clicked = clear_column.form_submit_button("Clear", width="stretch")
     if save_clicked:
@@ -689,6 +711,7 @@ def _match_editor_tab(service: CricketService) -> None:
             ),
             "Match saved.",
             service.repo.connection,
+            read_only,
         )
     elif delete_clicked and selected_id is not None:
         st.session_state["match_workspace_match_id"] = None
@@ -697,6 +720,7 @@ def _match_editor_tab(service: CricketService) -> None:
             "match_editor",
             "Match deleted.",
             service.repo.connection,
+            read_only,
         )
     elif clear_clicked:
         # Closing the editor returns the tab to its deliberately empty state.
@@ -705,7 +729,7 @@ def _match_editor_tab(service: CricketService) -> None:
         _clear_editor("match_editor")
 
 
-def _innings_editor_tab(service: CricketService) -> None:
+def _innings_editor_tab(service: CricketService, read_only: bool = False) -> None:
     """Render competition, match, and innings maintenance controls.
 
     :param service: Transaction-scoped service.
@@ -783,7 +807,7 @@ def _innings_editor_tab(service: CricketService) -> None:
     add_innings_clicked = st.button(
         "Add innings",
         key=f"{innings_editor_key}_add",
-        disabled=bool(selected_innings),
+        disabled=bool(selected_innings) or read_only,
     )
     if add_innings_clicked:
         # Rebuild the innings table so its prior row selection is cleared.
@@ -856,10 +880,10 @@ def _innings_editor_tab(service: CricketService) -> None:
         )
         save_column, delete_column, clear_column = st.columns(3)
         innings_save = save_column.form_submit_button(
-            "Save", type="primary", width="stretch"
+            "Save", type="primary", disabled=read_only, width="stretch"
         )
         innings_delete = delete_column.form_submit_button(
-            "Delete", disabled=selected_innings is None, width="stretch"
+            "Delete", disabled=selected_innings is None or read_only, width="stretch"
         )
         innings_clear = clear_column.form_submit_button("Clear", width="stretch")
     if innings_save:
@@ -887,6 +911,7 @@ def _innings_editor_tab(service: CricketService) -> None:
             ),
             "Innings saved.",
             service.repo.connection,
+            read_only,
         )
     elif innings_delete and selected_innings_id is not None:
         _delete(
@@ -894,6 +919,7 @@ def _innings_editor_tab(service: CricketService) -> None:
             f"innings_editor_{match_id}",
             "Innings deleted.",
             service.repo.connection,
+            read_only,
         )
     elif innings_clear:
         # Closing the editor restores the deliberate no-selection state.
@@ -901,7 +927,7 @@ def _innings_editor_tab(service: CricketService) -> None:
         _clear_editor(innings_editor_key)
 
 
-def _matches(service: CricketService) -> None:
+def _matches(service: CricketService, read_only: bool = False) -> None:
     """Render separate match and innings maintenance tabs.
 
     :param service: Transaction-scoped service.
@@ -917,9 +943,9 @@ def _matches(service: CricketService) -> None:
         key="matches_active_tab",
     )
     if active_tab == "Matches":
-        _match_editor_tab(service)
+        _match_editor_tab(service, read_only)
     else:
-        _innings_editor_tab(service)
+        _innings_editor_tab(service, read_only)
 
 
 def _standings(service: CricketService) -> None:
@@ -970,7 +996,7 @@ def _standings(service: CricketService) -> None:
     )
 
 
-def _countries(service: CricketService) -> None:
+def _countries(service: CricketService, read_only: bool = False) -> None:
     """Render country maintenance.
 
     :param service: Transaction-scoped service.
@@ -996,10 +1022,10 @@ def _countries(service: CricketService) -> None:
         )
         save_column, delete_column, clear_column = st.columns(3)
         save_clicked = save_column.form_submit_button(
-            "Save", type="primary", width="stretch"
+            "Save", type="primary", disabled=read_only, width="stretch"
         )
         delete_clicked = delete_column.form_submit_button(
-            "Delete", disabled=selected is None, width="stretch"
+            "Delete", disabled=selected is None or read_only, width="stretch"
         )
         clear_clicked = clear_column.form_submit_button("Clear", width="stretch")
     if save_clicked:
@@ -1007,6 +1033,7 @@ def _countries(service: CricketService) -> None:
             lambda: service.save_country(entity_id=selected_id, name=name, code=code),
             "Country saved.",
             service.repo.connection,
+            read_only,
         )
     elif delete_clicked and selected_id is not None:
         _delete(
@@ -1014,12 +1041,13 @@ def _countries(service: CricketService) -> None:
             "country_editor",
             "Country deleted.",
             service.repo.connection,
+            read_only,
         )
     elif clear_clicked:
         _clear_editor("country_editor")
 
 
-def _venues(service: CricketService) -> None:
+def _venues(service: CricketService, read_only: bool = False) -> None:
     """Render venue maintenance.
 
     :param service: Transaction-scoped service.
@@ -1070,10 +1098,10 @@ def _venues(service: CricketService) -> None:
         )
         save_column, delete_column, clear_column = st.columns(3)
         save_clicked = save_column.form_submit_button(
-            "Save", type="primary", width="stretch"
+            "Save", type="primary", disabled=read_only, width="stretch"
         )
         delete_clicked = delete_column.form_submit_button(
-            "Delete", disabled=selected is None, width="stretch"
+            "Delete", disabled=selected is None or read_only, width="stretch"
         )
         clear_clicked = clear_column.form_submit_button("Clear", width="stretch")
     if save_clicked:
@@ -1087,6 +1115,7 @@ def _venues(service: CricketService) -> None:
             ),
             "Venue saved.",
             service.repo.connection,
+            read_only,
         )
     elif delete_clicked and selected_id is not None:
         _delete(
@@ -1094,12 +1123,13 @@ def _venues(service: CricketService) -> None:
             "venue_editor",
             "Venue deleted.",
             service.repo.connection,
+            read_only,
         )
     elif clear_clicked:
         _clear_editor("venue_editor")
 
 
-def _teams(service: CricketService) -> None:
+def _teams(service: CricketService, read_only: bool = False) -> None:
     """Render team maintenance.
 
     :param service: Transaction-scoped service.
@@ -1164,10 +1194,10 @@ def _teams(service: CricketService) -> None:
         )
         save_column, delete_column, clear_column = st.columns(3)
         save_clicked = save_column.form_submit_button(
-            "Save", type="primary", width="stretch"
+            "Save", type="primary", disabled=read_only, width="stretch"
         )
         delete_clicked = delete_column.form_submit_button(
-            "Delete", disabled=selected is None, width="stretch"
+            "Delete", disabled=selected is None or read_only, width="stretch"
         )
         clear_clicked = clear_column.form_submit_button("Clear", width="stretch")
     if save_clicked:
@@ -1181,6 +1211,7 @@ def _teams(service: CricketService) -> None:
             ),
             "Team saved.",
             service.repo.connection,
+            read_only,
         )
     elif delete_clicked and selected_id is not None:
         _delete(
@@ -1188,12 +1219,13 @@ def _teams(service: CricketService) -> None:
             "team_editor",
             "Team deleted.",
             service.repo.connection,
+            read_only,
         )
     elif clear_clicked:
         _clear_editor("team_editor")
 
 
-def _competitions(service: CricketService) -> None:
+def _competitions(service: CricketService, read_only: bool = False) -> None:
     """Render competition maintenance.
 
     :param service: Transaction-scoped service.
@@ -1271,10 +1303,10 @@ def _competitions(service: CricketService) -> None:
         )
         save_column, delete_column, clear_column = st.columns(3)
         save_clicked = save_column.form_submit_button(
-            "Save", type="primary", width="stretch"
+            "Save", type="primary", disabled=read_only, width="stretch"
         )
         delete_clicked = delete_column.form_submit_button(
-            "Delete", disabled=selected is None, width="stretch"
+            "Delete", disabled=selected is None or read_only, width="stretch"
         )
         clear_clicked = clear_column.form_submit_button("Clear", width="stretch")
     if save_clicked:
@@ -1290,6 +1322,7 @@ def _competitions(service: CricketService) -> None:
             ),
             "Competition saved.",
             service.repo.connection,
+            read_only,
         )
     elif delete_clicked and selected_id is not None:
         _delete(
@@ -1297,12 +1330,13 @@ def _competitions(service: CricketService) -> None:
             "competition_editor",
             "Competition deleted.",
             service.repo.connection,
+            read_only,
         )
     elif clear_clicked:
         _clear_editor("competition_editor")
 
 
-def _rulesets(service: CricketService) -> None:
+def _rulesets(service: CricketService, read_only: bool = False) -> None:
     """Render competition ruleset maintenance.
 
     :param service: Transaction-scoped service.
@@ -1393,10 +1427,10 @@ def _rulesets(service: CricketService) -> None:
         )
         save_column, delete_column, clear_column = st.columns(3)
         save_clicked = save_column.form_submit_button(
-            "Save", type="primary", width="stretch"
+            "Save", type="primary", disabled=read_only, width="stretch"
         )
         delete_clicked = delete_column.form_submit_button(
-            "Delete", disabled=selected is None, width="stretch"
+            "Delete", disabled=selected is None or read_only, width="stretch"
         )
         clear_clicked = clear_column.form_submit_button("Clear", width="stretch")
     if save_clicked:
@@ -1418,6 +1452,7 @@ def _rulesets(service: CricketService) -> None:
             ),
             "Ruleset saved.",
             service.repo.connection,
+            read_only,
         )
     elif delete_clicked and selected_id is not None:
         _delete(
@@ -1425,6 +1460,7 @@ def _rulesets(service: CricketService) -> None:
             "ruleset_editor",
             "Ruleset deleted.",
             service.repo.connection,
+            read_only,
         )
     elif clear_clicked:
         _clear_editor("ruleset_editor")
@@ -1449,7 +1485,7 @@ def _reset_export_file_stem() -> None:
     st.session_state["export_file_stem"] = st.session_state.get("export", "")
 
 
-def _csv_import(service: CricketService) -> None:
+def _csv_import(service: CricketService, read_only: bool = False) -> None:
     """Render CSV import controls.
 
     :param service: Transaction-scoped service.
@@ -1467,8 +1503,9 @@ def _csv_import(service: CricketService) -> None:
         "CSV file",
         type="csv",
         key=f"import_upload_{upload_generation}",
+        disabled=read_only,
     )
-    if upload and st.button("Import CSV"):
+    if upload and st.button("Import CSV", disabled=read_only):
         result = CricketImporter(service.repo.connection).import_csv(dataset, upload.getvalue())
         service.repo.connection.commit()
         st.success(f"Imported {result.imported}; skipped {result.skipped}.")
@@ -1603,10 +1640,16 @@ def run() -> None:
         layout="wide",
         initial_sidebar_state="collapsed",
     )
+    read_only = _is_read_only_request()
     apply_migrations()
     connection = connect()
     service = CricketService(connection)
     st.title(f"🏏 Cricket Tracker v{application_version()}")
+    if read_only:
+        st.info(
+            "Browse-only mode: this hosted application does not allow saving, "
+            "deleting, or importing data."
+        )
     # Show confirmations queued immediately before the preceding rerun.
     _show_pending_success()
     page = _main_navigation()
@@ -1622,7 +1665,18 @@ def run() -> None:
             "CSV Import": _csv_import,
             "CSV Export": _csv_export,
         }
-        pages[page](service)
+        if page in {
+            "Matches",
+            "Competitions",
+            "Teams",
+            "Venues",
+            "Countries",
+            "Rulesets",
+            "CSV Import",
+        }:
+            pages[page](service, read_only)
+        else:
+            pages[page](service)
         connection.commit()
     finally:
         connection.close()
