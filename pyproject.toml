@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cricket-tracker"
+version = "1.0.0"
+description = "Cricket Competition Tracker"
+readme = "README.md"
+requires-python = ">=3.14,<4"
+dependencies = [
+  "pandas>=2.2.3",
+  "pytest",
+  "reportlab>=4.2",
+  "streamlit>=1.58",
+  "yoyo-migrations>=9.0",
+]
+
+[project.scripts]
+cricket-tracker = "cricket_tracker.cli:main"
+cricket-import = "cricket_tracker.import_cli:main"
+cricket-export = "cricket_tracker.export_cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.poetry]
+package-mode = false

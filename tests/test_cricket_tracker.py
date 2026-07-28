@@ -1,0 +1,1057 @@
+"""End-to-end tests for Cricket Tracker's initial implementation."""
+
+from __future__ import annotations
+
+import csv
+import io
+import sqlite3
+
+import pandas as pd
+import pytest
+
+from cricket_tracker import app as tracker_app
+from cricket_tracker.cli import streamlit_entrypoint
+from cricket_tracker.exports import DATASETS, export_csv
+from cricket_tracker.imports import CricketImporter
+from cricket_tracker.services import CricketService, ValidationError
+from cricket_tracker.standings import (
+    calculate_combined_standings,
+    calculate_standings,
+    combined_competition_ids,
+    table_to_csv,
+)
+
+
+def test_streamlit_entrypoint_is_packaged() -> None:
+    """Resolve the launcher to a Python file included inside the package.
+
+    :return: None.
+    """
+    entrypoint = streamlit_entrypoint()
+    # A wheel contains package modules but excludes the source-root wrapper.
+    assert entrypoint.name == "app.py"
+    assert entrypoint.parent.name == "cricket_tracker"
+    assert entrypoint.is_file()
+
+
+def complete_match(service: CricketService, core: dict[str, int]) -> None:
+    """Enter two innings and a completed run result.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    service.save_innings(
+        match_id=core["match"], innings_number=1, batting_team_id=core["home"],
+        bowling_team_id=core["away"], runs=150, wickets=6, balls=100,
+    )
+    service.save_innings(
+        match_id=core["match"], innings_number=2, batting_team_id=core["away"],
+        bowling_team_id=core["home"], runs=137, wickets=8, balls=100,
+    )
+    service.save_match(
+        entity_id=core["match"], competition_id=core["competition"],
+        match_date="2026-07-20", venue_id=core["venue"],
+        home_team_id=core["home"], away_team_id=core["away"],
+        match_stage="League", match_status="Completed",
+        winning_team_id=core["home"], result_type="Runs",
+        result_margin_value=13, result_margin_type="Runs",
+    )
+
+
+def test_initial_schema_is_cricket_native(connection: sqlite3.Connection) -> None:
+    """Verify fresh installations contain only the intended domain.
+
+    :param connection: Fresh database connection.
+    :return: None.
+    """
+    tables = {
+        row["name"] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        )
+    }
+    assert {"matches", "innings", "competitions", "competition_rulesets"} <= tables
+    assert "competition_seasons" not in tables
+    assert "referees" not in tables
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(matches)")}
+    assert "home_score" not in columns
+    assert {"match_status", "winning_team_id", "result_margin_type"} <= columns
+    assert "notes" not in columns
+    team_columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(teams)")
+    }
+    assert "short_name" not in team_columns
+    assert "active" not in team_columns
+    assert "notes" not in team_columns
+    innings_columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(innings)")
+    }
+    assert "notes" not in innings_columns
+    for table in ("venues", "competitions"):
+        columns = {
+            row["name"] for row in connection.execute(f"PRAGMA table_info({table})")
+        }
+        assert "notes" not in columns
+    ruleset_columns = {
+        row["name"]
+        for row in connection.execute(
+            "PRAGMA table_info(competition_rulesets)"
+        )
+    }
+    assert "notes" not in ruleset_columns
+
+
+def test_match_validation(service: CricketService, core: dict[str, int]) -> None:
+    """Reject invalid teams and completed results.
+
+    :param service: Cricket service.
+    :param core: Core identifiers.
+    :return: None.
+    """
+    with pytest.raises(ValidationError, match="cannot play itself"):
+        service.save_match(
+            competition_id=core["competition"], match_date="2026-07-21",
+            home_team_id=core["home"], away_team_id=core["home"],
+        )
+    with pytest.raises(ValidationError, match="two innings"):
+        service.save_match(
+            entity_id=core["match"], competition_id=core["competition"],
+            match_date="2026-07-20", venue_id=core["venue"],
+            home_team_id=core["home"], away_team_id=core["away"],
+            match_stage="League", match_status="Completed",
+            winning_team_id=core["home"], result_type="Runs",
+            result_margin_value=1,
+        )
+
+
+def test_completed_match_and_standings(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Calculate points and NRR from innings summaries.
+
+    :param service: Cricket service.
+    :param core: Core identifiers.
+    :return: None.
+    """
+    complete_match(service, core)
+    table = calculate_standings(service.repo.connection, core["competition"])
+    assert table[0]["team"] == "London Spirit Men"
+    assert table[0]["won"] == 1
+    assert table[0]["points"] == 4
+    assert table[0]["net_run_rate"] == 0.65
+    assert table[1]["lost"] == 1
+
+
+def test_league_table_csv_contains_displayed_rows(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Serialise the currently calculated league table display columns.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    complete_match(service, core)
+    table = calculate_standings(service.repo.connection, core["competition"])
+
+    # The download uses the same calculated rows rather than issuing another query.
+    rows = list(csv.DictReader(io.StringIO(table_to_csv(table))))
+
+    assert [row["team"] for row in rows] == [
+        "London Spirit Men",
+        "Oval Invincibles Men",
+    ]
+    assert rows[0]["points"] == "4"
+    assert list(rows[0]) == [
+        "team", "played", "won", "lost", "tied", "no_result",
+        "points", "net_run_rate",
+    ]
+
+
+def test_combined_gender_table_sums_franchises_and_recalculates_nrr(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Combine paired gender tables by shared franchise name.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    # Rename the fixture teams to gender-neutral franchise identities.
+    service.repo.connection.execute(
+        "UPDATE teams SET name = 'Franchise A' WHERE id = ?", (core["home"],)
+    )
+    service.repo.connection.execute(
+        "UPDATE teams SET name = 'Franchise B' WHERE id = ?", (core["away"],)
+    )
+    complete_match(service, core)
+    women_home = service.save_team(
+        name="Franchise A", country_id=core["country"], gender="Women",
+        home_venue_id=core["venue"],
+    )
+    women_away = service.save_team(
+        name="Franchise B", country_id=core["country"], gender="Women",
+        home_venue_id=core["venue"],
+    )
+    women_competition = service.save_competition(
+        name="Women's Competition", season="2026", ruleset_id=core["ruleset"],
+        gender="Women", format="The Hundred", country_id=core["country"],
+    )
+    women_match = service.save_match(
+        competition_id=women_competition, match_date="2026-07-21",
+        venue_id=core["venue"], home_team_id=women_home,
+        away_team_id=women_away, match_stage="League",
+        match_status="Scheduled",
+    )
+    service.save_innings(
+        match_id=women_match, innings_number=1, batting_team_id=women_home,
+        bowling_team_id=women_away, runs=137, wickets=6, balls=100,
+        completed=True,
+    )
+    service.save_innings(
+        match_id=women_match, innings_number=2, batting_team_id=women_away,
+        bowling_team_id=women_home, runs=138, wickets=6, balls=100,
+        completed=True,
+    )
+
+    combined = calculate_combined_standings(
+        service.repo.connection,
+        core["competition"],
+    )
+
+    assert set(combined_competition_ids(
+        service.repo.connection, core["competition"]
+    )) == {core["competition"], women_competition}
+    assert [row["team"] for row in combined] == ["Franchise A", "Franchise B"]
+    assert all(row["played"] == 2 for row in combined)
+    assert all(row["won"] == 1 and row["lost"] == 1 for row in combined)
+    assert all(row["points"] == 4 for row in combined)
+    assert combined[0]["net_run_rate"] == 0.3
+    assert combined[1]["net_run_rate"] == -0.3
+
+
+def test_csv_exports_separate_matches_and_innings(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Ensure supported datasets have stable headers.
+
+    :param service: Cricket service.
+    :param core: Core identifiers.
+    :return: None.
+    """
+    complete_match(service, core)
+    match_export = export_csv(service.repo.connection, "matches")
+    assert "home_team,away_team" in match_export
+    assert "notes" not in match_export.splitlines()[0].split(",")
+    assert "innings_number,batting_team,bowling_team" in export_csv(
+        service.repo.connection, "innings"
+    )
+    innings_header = export_csv(
+        service.repo.connection, "innings"
+    ).splitlines()[0].split(",")
+    assert "notes" not in innings_header
+    assert set(DATASETS) >= {"matches", "innings"}
+
+
+def test_csv_exports_can_be_filtered_by_competition(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Restrict every export dataset to rows related to one competition.
+
+    :param service: Cricket service.
+    :param core: Core identifiers.
+    :return: None.
+    """
+    complete_match(service, core)
+    other_home = service.save_team(
+        name="Manchester Originals Men", country_id=core["country"],
+        gender="Men", home_venue_id=core["venue"],
+    )
+    other_away = service.save_team(
+        name="Northern Superchargers Men", country_id=core["country"],
+        gender="Men", home_venue_id=core["venue"],
+    )
+    other_competition = service.save_competition(
+        name="Other Competition", season="2026", ruleset_id=core["ruleset"],
+        gender="Men", format="The Hundred", country_id=core["country"],
+    )
+    service.save_match(
+        competition_id=other_competition, match_date="2026-07-21",
+        venue_id=core["venue"], home_team_id=other_home,
+        away_team_id=other_away, match_stage="League",
+        match_status="Scheduled",
+    )
+
+    # Parse the CSV output so assertions check row scope rather than incidental text.
+    matches = list(
+        csv.DictReader(
+            io.StringIO(
+                export_csv(
+                    service.repo.connection, "matches", core["competition"]
+                )
+            )
+        )
+    )
+    teams = list(
+        csv.DictReader(
+            io.StringIO(
+                export_csv(service.repo.connection, "teams", core["competition"])
+            )
+        )
+    )
+    competitions = list(
+        csv.DictReader(
+            io.StringIO(
+                export_csv(
+                    service.repo.connection, "competitions", core["competition"]
+                )
+            )
+        )
+    )
+
+    assert len(matches) == 1
+    assert matches[0]["home_team"] == "London Spirit Men"
+    assert {row["name"] for row in teams} == {
+        "London Spirit Men", "Oval Invincibles Men",
+    }
+    assert [row["name"] for row in competitions] == [
+        "The Hundred Men's Competition"
+    ]
+
+
+def test_csv_export_rejects_unknown_competition(
+    service: CricketService,
+) -> None:
+    """Reject an invalid competition filter instead of returning an empty export.
+
+    :param service: Cricket service.
+    :return: None.
+    """
+    # A clear error helps callers distinguish invalid input from a valid empty dataset.
+    with pytest.raises(ValueError, match="No competition exists"):
+        export_csv(service.repo.connection, "matches", 999_999)
+
+
+def test_ui_save_commits_before_requesting_rerun(
+    service: CricketService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Commit an editor mutation before Streamlit interrupts the current run.
+
+    :param service: Cricket service.
+    :param monkeypatch: Pytest attribute patching helper.
+    :return: None.
+    """
+    session_state: dict[str, str] = {}
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+
+    def interrupt_rerun() -> None:
+        """Represent Streamlit ending the current script for a UI refresh.
+
+        :return: None.
+        """
+        # Streamlit's rerun control flow prevents code after the helper from executing.
+        raise RuntimeError("rerun")
+
+    monkeypatch.setattr(tracker_app.st, "rerun", interrupt_rerun)
+    with pytest.raises(RuntimeError, match="rerun"):
+        tracker_app._save(
+            lambda: service.save_country(name="Committed Country", code="CC"),
+            "Country saved.",
+            service.repo.connection,
+        )
+
+    # The transaction has already ended successfully despite the rerun interruption.
+    assert service.repo.connection.in_transaction is False
+    assert session_state["_pending_success"] == "Country saved."
+    assert any(
+        row["name"] == "Committed Country" for row in service.list_countries()
+    )
+
+
+def test_pending_success_is_displayed_after_rerun(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Display a queued confirmation once on the refreshed page.
+
+    :param monkeypatch: Pytest attribute patching helper.
+    :return: None.
+    """
+    session_state = {"_pending_success": "Innings saved."}
+    displayed: list[str] = []
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+    monkeypatch.setattr(tracker_app.st, "success", displayed.append)
+
+    # Consuming the message prevents it reappearing after unrelated interactions.
+    tracker_app._show_pending_success()
+
+    assert displayed == ["Innings saved."]
+    assert "_pending_success" not in session_state
+
+
+def test_export_dataset_change_resets_custom_file_stem(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Replace a custom export stem whenever the dataset changes.
+
+    :param monkeypatch: Pytest attribute patching helper.
+    :return: None.
+    """
+    session_state = {
+        "export": "innings",
+        "export_file_stem": "my-custom-name",
+    }
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+
+    # The callback always follows the current dataset, irrespective of prior user input.
+    tracker_app._reset_export_file_stem()
+
+    assert session_state["export_file_stem"] == "innings"
+
+
+def test_csv_validation_reports_unknown_references(connection: sqlite3.Connection) -> None:
+    """Return a clear row error for missing references.
+
+    :param connection: Open database connection.
+    :return: None.
+    """
+    result = CricketImporter(connection).import_csv(
+        "venues", "name,city,country\nSomewhere,London,Unknown\n"
+    )
+    assert result.imported == 0
+    assert result.skipped == 1
+    assert "Unknown country" in result.errors[0]
+
+
+def test_country_csv_reimport_skips_existing_record(
+    connection: sqlite3.Connection,
+) -> None:
+    """Treat repeated country imports as skipped records.
+
+    :param connection: Open database connection.
+    :return: None.
+    """
+    importer = CricketImporter(connection)
+    content = "name,code\nEngland,ENG\n"
+    first = importer.import_csv("countries", content)
+    second = importer.import_csv("countries", content)
+
+    assert first.imported == 1
+    assert second.imported == 0
+    assert second.skipped == 1
+    assert second.errors == []
+    assert connection.execute("SELECT COUNT(*) FROM countries").fetchone()[0] == 1
+
+
+def test_all_csv_reimports_skip_existing_records(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Skip existing natural keys across every supported dataset.
+
+    :param service: Cricket service.
+    :param core: Core identifiers.
+    :return: None.
+    """
+    complete_match(service, core)
+    importer = CricketImporter(service.repo.connection)
+
+    for dataset in DATASETS:
+        content = export_csv(service.repo.connection, dataset)
+        expected_rows = max(len(content.splitlines()) - 1, 0)
+        result = importer.import_csv(dataset, content)
+
+        assert result.imported == 0, dataset
+        assert result.skipped == expected_rows, dataset
+        assert result.errors == [], dataset
+
+
+def test_team_identity_uses_name_and_gender(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Allow equal team names across genders and skip only an equal pair.
+
+    :param service: Cricket service.
+    :param core: Core identifiers.
+    :return: None.
+    """
+    importer = CricketImporter(service.repo.connection)
+    content = (
+        "name,country,gender,home_venue\n"
+        "Manchester Originals,England,Men,Lord's\n"
+        "Manchester Originals,England,Women,Lord's\n"
+        "Manchester Originals,England,Men,Lord's\n"
+    )
+
+    result = importer.import_csv("teams", content)
+
+    assert result.imported == 2
+    assert result.skipped == 1
+    assert result.errors == []
+    rows = service.repo.connection.execute(
+        """
+        SELECT name, gender FROM teams
+        WHERE name = ? COLLATE NOCASE
+        ORDER BY gender
+        """,
+        ("Manchester Originals",),
+    ).fetchall()
+    assert [(row["name"], row["gender"]) for row in rows] == [
+        ("Manchester Originals", "Men"),
+        ("Manchester Originals", "Women"),
+    ]
+
+
+def test_match_form_team_options_preserve_duplicate_gendered_names(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Keep both team identifiers available when their names are identical.
+
+    :param service: Cricket service.
+    :param core: Core identifiers.
+    :return: None.
+    """
+    duplicate = service.save_team(
+        name="London Spirit Men", country_id=core["country"],
+        gender="Women", home_venue_id=core["venue"],
+    )
+
+    # Gender-qualified labels prevent one dictionary entry replacing the other.
+    options = tracker_app._team_options(service.list_teams())
+    assert options["London Spirit Men — Men"] == core["home"]
+    assert options["London Spirit Men — Women"] == duplicate
+
+
+def test_match_competition_change_clears_editor_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reset selected-row and record-specific state after changing competition.
+
+    :param monkeypatch: Pytest attribute patching helper.
+    :return: None.
+    """
+    session_state = {
+        "match_workspace_competition": "New competition",
+        "match_workspace_match_id": 10,
+        "match_editor_generation": 2,
+        "match_editor_new": True,
+        "match_date_10": "2026-07-20",
+        "match_winner_10": "Old winner",
+        "match_calculated_result_10": "Runs",
+        "main_navigation": "Matches",
+    }
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+
+    # The callback must preserve global navigation and the newly chosen competition.
+    tracker_app._reset_match_tab()
+
+    assert session_state["match_workspace_competition"] == "New competition"
+    assert session_state["match_workspace_match_id"] is None
+    assert session_state["match_editor_generation"] == 3
+    assert session_state["match_editor_new"] is False
+    assert session_state["main_navigation"] == "Matches"
+    assert "match_date_10" not in session_state
+    assert "match_winner_10" not in session_state
+    assert "match_calculated_result_10" not in session_state
+
+
+def test_innings_match_selector_updates_shared_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Publish an innings dropdown choice for the matches table and form.
+
+    :param monkeypatch: Pytest attribute patching helper.
+    :return: None.
+    """
+    session_state = {
+        "innings_match_widget": "Match B",
+        "match_workspace_match_id": 1,
+        "match_editor_generation": 4,
+        "match_editor_new": True,
+    }
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+
+    # Synchronising also resets any stale dataframe row selection.
+    tracker_app._sync_workspace_match(
+        {"Match A": 1, "Match B": 2},
+        "innings_match_widget",
+    )
+
+    assert session_state["match_workspace_match_id"] == 2
+    assert session_state["match_editor_generation"] == 5
+    assert session_state["match_editor_new"] is False
+
+
+def test_match_checkbox_selection_prefers_new_row() -> None:
+    """Resolve a newly checked match when the prior row is still checked.
+
+    :return: None.
+    """
+    # Data editors briefly return both values while changing a checkbox selection.
+    assert tracker_app._choose_match_selection([10, 11], 10) == 11
+    assert tracker_app._choose_match_selection([11], 11) == 11
+    assert tracker_app._choose_match_selection([], 11) is None
+
+
+def test_match_team_cells_are_styled_by_result() -> None:
+    """Colour winner, loser, and neutral team cells from match outcomes.
+
+    :return: None.
+    """
+    rows = [
+        {
+            "home_team_id": 1, "away_team_id": 2, "winning_team_id": 1,
+            "result_type": "Runs", "match_status": "Completed",
+        },
+        {
+            "home_team_id": 3, "away_team_id": 4, "winning_team_id": None,
+            "result_type": "Tie", "match_status": "Completed",
+        },
+        {
+            "home_team_id": 5, "away_team_id": 6, "winning_team_id": None,
+            "result_type": "Abandoned", "match_status": "Abandoned",
+        },
+    ]
+    frame = pd.DataFrame(
+        {
+            "Selected": [False, False, False],
+            "Home team": ["Home A", "Home B", "Home C"],
+            "Away team": ["Away A", "Away B", "Away C"],
+        }
+    )
+
+    # Only team-name cells receive outcome colours.
+    styles = tracker_app._match_team_cell_styles(rows, frame)
+
+    assert styles.at[0, "Home team"] == "background-color: #dff2e1"
+    assert styles.at[0, "Away team"] == "background-color: #f8dddd"
+    assert styles.at[1, "Home team"] == "background-color: #fff3cd"
+    assert styles.at[1, "Away team"] == "background-color: #fff3cd"
+    assert styles.at[2, "Home team"] == "background-color: #fff3cd"
+    assert styles.at[2, "Away team"] == "background-color: #fff3cd"
+    assert styles.at[0, "Selected"] == ""
+
+
+def test_innings_view_uses_persistent_tab_selection(
+    service: CricketService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep the innings editor active during table-selection reruns.
+
+    :param service: Cricket service.
+    :param monkeypatch: Pytest attribute patching helper.
+    :return: None.
+    """
+    rendered: list[str] = []
+    radio_arguments: dict[str, object] = {}
+    monkeypatch.setattr(tracker_app.st, "header", lambda _label: None)
+
+    def select_innings(*_args: object, **kwargs: object) -> str:
+        """Return the persisted innings selection and capture its widget key.
+
+        :param _args: Positional radio arguments.
+        :param kwargs: Keyword radio arguments.
+        :return: Selected innings view label.
+        """
+        # A stable key is what lets Streamlit restore the selection after rerunning.
+        radio_arguments.update(kwargs)
+        return "Innings"
+
+    monkeypatch.setattr(tracker_app.st, "radio", select_innings)
+    monkeypatch.setattr(
+        tracker_app, "_match_editor_tab", lambda _service: rendered.append("Matches")
+    )
+    monkeypatch.setattr(
+        tracker_app, "_innings_editor_tab", lambda _service: rendered.append("Innings")
+    )
+
+    tracker_app._matches(service)
+
+    assert radio_arguments["key"] == "matches_active_tab"
+    assert rendered == ["Innings"]
+
+
+def test_innings_import_uses_competition_date_and_gender(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Resolve an innings match and teams using their intended natural keys.
+
+    :param service: Cricket service.
+    :param core: Core identifiers.
+    :return: None.
+    """
+    # Equal women's names prove that the competition's men's gender is needed
+    # to resolve the two team references unambiguously.
+    service.save_team(
+        name="London Spirit Men",
+        country_id=core["country"],
+        gender="Women",
+        home_venue_id=core["venue"],
+    )
+    service.save_team(
+        name="Oval Invincibles Men",
+        country_id=core["country"],
+        gender="Women",
+        home_venue_id=core["venue"],
+    )
+    content = (
+        "competition,season,match_date,home_team,away_team,innings_number,"
+        "batting_team,bowling_team,runs,wickets,balls,extras,target,completed\n"
+        "The Hundred Men's Competition,2026,2026-07-20,,,1,"
+        "London Spirit Men,Oval Invincibles Men,150,6,100,,,1\n"
+    )
+
+    result = CricketImporter(service.repo.connection).import_csv(
+        "innings", content
+    )
+
+    assert result.imported == 1
+    assert result.skipped == 0
+    assert result.errors == []
+    innings = service.repo.connection.execute(
+        "SELECT * FROM innings"
+    ).fetchone()
+    assert innings["match_id"] == core["match"]
+    assert innings["batting_team_id"] == core["home"]
+    assert innings["bowling_team_id"] == core["away"]
+
+
+def test_planned_innings_import_allows_blank_details(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Import a future innings with only its match and innings number.
+
+    :param service: Cricket service.
+    :param core: Core identifiers.
+    :return: None.
+    """
+    content = (
+        "competition,season,match_date,home_team,away_team,innings_number,"
+        "batting_team,bowling_team,runs,wickets,balls,extras,target,completed\n"
+        "The Hundred Men's Competition,2026,2026-07-20,"
+        "London Spirit Men,Oval Invincibles Men,1,,,,,,,,False\n"
+    )
+
+    result = CricketImporter(service.repo.connection).import_csv(
+        "innings", content
+    )
+
+    assert result.imported == 1
+    assert result.skipped == 0
+    assert result.errors == []
+    innings = service.repo.connection.execute(
+        "SELECT * FROM innings"
+    ).fetchone()
+    assert innings["match_id"] == core["match"]
+    assert innings["batting_team_id"] is None
+    assert innings["bowling_team_id"] is None
+    assert innings["runs"] is None
+    assert innings["wickets"] is None
+    assert innings["balls"] is None
+    assert innings["completed"] == 0
+
+
+def test_completed_match_result_is_derived_from_innings(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Store a calculated run result when a match becomes complete.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    # A completed defence supplies all facts needed for a run-margin result.
+    service.save_innings(
+        match_id=core["match"], innings_number=1, batting_team_id=core["home"],
+        bowling_team_id=core["away"], runs=150, wickets=6, balls=100,
+        completed=True,
+    )
+    service.save_innings(
+        match_id=core["match"], innings_number=2, batting_team_id=core["away"],
+        bowling_team_id=core["home"], runs=137, wickets=8, balls=100,
+        completed=True,
+    )
+    service.save_match(
+        entity_id=core["match"], competition_id=core["competition"],
+        match_date="2026-07-20", venue_id=core["venue"],
+        home_team_id=core["home"], away_team_id=core["away"],
+        match_stage="League", match_status="Completed",
+    )
+
+    match = service.repo.matches.get(core["match"])
+    assert match["winning_team_id"] == core["home"]
+    assert match["result_type"] == "Runs"
+    assert match["result_margin_value"] == 13
+    assert match["result_source"] == "Calculated"
+    assert match["result_method"] == "Standard"
+
+
+def test_completing_both_innings_updates_match_result_immediately(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Complete an ordinary match and calculate its result from the innings editor.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    # The fixture begins scheduled and should not require a separate match-form save.
+    service.save_innings(
+        match_id=core["match"], innings_number=1, batting_team_id=core["home"],
+        bowling_team_id=core["away"], runs=165, wickets=5, balls=100,
+        completed=True,
+    )
+    service.save_innings(
+        match_id=core["match"], innings_number=2, batting_team_id=core["away"],
+        bowling_team_id=core["home"], runs=160, wickets=9, balls=100,
+        completed=True,
+    )
+
+    match = service.repo.matches.get(core["match"])
+    assert match["match_status"] == "Completed"
+    assert match["winning_team_id"] == core["home"]
+    assert match["result_type"] == "Runs"
+    assert match["result_margin_value"] == 5
+    assert match["result_source"] == "Calculated"
+    # The match editor's enriched row must expose the generated winner label.
+    displayed_match = next(
+        row for row in service.list_matches() if row["id"] == core["match"]
+    )
+    assert displayed_match["winning_team_name"] == "London Spirit Men"
+
+
+def test_one_completed_innings_does_not_complete_match(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Keep a match unresolved until both expected innings are complete.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    # One completed innings is insufficient evidence of a completed match.
+    service.save_innings(
+        match_id=core["match"], innings_number=1, batting_team_id=core["home"],
+        bowling_team_id=core["away"], runs=165, wickets=5, balls=100,
+        completed=True,
+    )
+
+    match = service.repo.matches.get(core["match"])
+    assert match["match_status"] == "Scheduled"
+    assert match["result_type"] is None
+
+
+def test_uncompleting_innings_clears_calculated_result(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Clear generated match fields when an innings is explicitly uncompleted.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    service.save_innings(
+        match_id=core["match"], innings_number=1, batting_team_id=core["home"],
+        bowling_team_id=core["away"], runs=165, wickets=5, balls=100,
+        completed=True,
+    )
+    second_id = service.save_innings(
+        match_id=core["match"], innings_number=2, batting_team_id=core["away"],
+        bowling_team_id=core["home"], runs=160, wickets=9, balls=100,
+        completed=True,
+    )
+    assert service.repo.matches.get(core["match"])["result_type"] == "Runs"
+
+    # Even a full ball allocation is no longer conclusive after an explicit uncomplete.
+    service.save_innings(
+        entity_id=second_id, match_id=core["match"], innings_number=2,
+        batting_team_id=core["away"], bowling_team_id=core["home"],
+        runs=160, wickets=9, balls=100, completed=False,
+    )
+
+    match = service.repo.matches.get(core["match"])
+    assert match["match_status"] == "In Progress"
+    assert match["winning_team_id"] is None
+    assert match["result_type"] is None
+    assert match["result_margin_value"] is None
+    assert match["result_source"] is None
+
+
+def test_successful_chase_is_derived_before_completed_flag(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Recognise a reached target even when the chase is not explicitly complete.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    # Reaching the target conclusively ends an otherwise unmarked second innings.
+    service.save_innings(
+        match_id=core["match"], innings_number=1, batting_team_id=core["home"],
+        bowling_team_id=core["away"], runs=157, wickets=7, balls=100,
+        completed=True,
+    )
+    service.save_innings(
+        match_id=core["match"], innings_number=2, batting_team_id=core["away"],
+        bowling_team_id=core["home"], runs=158, wickets=6, balls=94,
+        completed=False,
+    )
+    service.save_match(
+        entity_id=core["match"], competition_id=core["competition"],
+        match_date="2026-07-20", venue_id=core["venue"],
+        home_team_id=core["home"], away_team_id=core["away"],
+        match_stage="League", match_status="Completed",
+    )
+
+    match = service.repo.matches.get(core["match"])
+    assert match["winning_team_id"] == core["away"]
+    assert match["result_type"] == "Wickets"
+    assert match["result_margin_value"] == 4
+
+
+def test_incomplete_chase_does_not_create_result(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Leave result fields empty while the chasing innings can continue.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    # A lower partial score is not evidence that the first batting side won.
+    service.save_innings(
+        match_id=core["match"], innings_number=1, batting_team_id=core["home"],
+        bowling_team_id=core["away"], runs=157, wickets=7, balls=100,
+        completed=True,
+    )
+    service.save_innings(
+        match_id=core["match"], innings_number=2, batting_team_id=core["away"],
+        bowling_team_id=core["home"], runs=120, wickets=3, balls=72,
+        completed=False,
+    )
+    service.save_match(
+        entity_id=core["match"], competition_id=core["competition"],
+        match_date="2026-07-20", venue_id=core["venue"],
+        home_team_id=core["home"], away_team_id=core["away"],
+        match_stage="League", match_status="Completed",
+    )
+
+    match = service.repo.matches.get(core["match"])
+    assert match["result_type"] is None
+    assert match["result_source"] is None
+
+
+def test_abandoned_match_override_does_not_require_innings(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Save an official abandoned result when no innings data exists.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    # Exceptional outcomes use an explained manual override instead of calculation.
+    service.save_match(
+        entity_id=core["match"], competition_id=core["competition"],
+        match_date="2026-07-20", venue_id=core["venue"],
+        home_team_id=core["home"], away_team_id=core["away"],
+        match_stage="League", match_status="Abandoned",
+        result_type="Abandoned", result_method="Other",
+        result_source="Manual",
+        result_override_reason="Match abandoned without a ball bowled.",
+    )
+
+    match = service.repo.matches.get(core["match"])
+    assert match["match_status"] == "Abandoned"
+    assert match["winning_team_id"] is None
+    assert match["result_type"] == "Abandoned"
+    assert match["result_source"] == "Manual"
+    assert service.list_innings(core["match"]) == []
+
+
+def test_abandoned_result_is_credited_when_status_was_scheduled(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Synchronise and credit an abandoned result entered on a scheduled fixture.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    # Placeholder innings may exist for the scheduled fixture without usable score data.
+    service.save_innings(match_id=core["match"], innings_number=1, completed=False)
+    service.save_innings(match_id=core["match"], innings_number=2, completed=False)
+    # Selecting the official result is sufficient; users need not duplicate its status.
+    service.save_match(
+        entity_id=core["match"], competition_id=core["competition"],
+        match_date="2026-07-20", venue_id=core["venue"],
+        home_team_id=core["home"], away_team_id=core["away"],
+        match_stage="League", match_status="Scheduled",
+        result_type="Abandoned", result_method="Other",
+        result_source="Manual",
+        result_override_reason="Match abandoned without a ball bowled.",
+    )
+
+    match = service.repo.matches.get(core["match"])
+    table = calculate_standings(service.repo.connection, core["competition"])
+    assert match["match_status"] == "Abandoned"
+    assert all(row["played"] == 1 for row in table)
+    assert all(row["no_result"] == 1 for row in table)
+    assert all(row["points"] == 2 for row in table)
+    assert all(row["net_run_rate"] is None for row in table)
+
+
+def test_innings_edit_recalculates_result_but_preserves_manual_override(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Refresh calculated summaries and retain an explicit official override.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    service.save_innings(
+        match_id=core["match"], innings_number=1, batting_team_id=core["home"],
+        bowling_team_id=core["away"], runs=100, wickets=8, balls=100,
+        completed=True,
+    )
+    second_id = service.save_innings(
+        match_id=core["match"], innings_number=2, batting_team_id=core["away"],
+        bowling_team_id=core["home"], runs=100, wickets=9, balls=100,
+        completed=True,
+    )
+    service.save_match(
+        entity_id=core["match"], competition_id=core["competition"],
+        match_date="2026-07-20", venue_id=core["venue"],
+        home_team_id=core["home"], away_team_id=core["away"],
+        match_stage="League", match_status="Completed",
+    )
+    assert service.repo.matches.get(core["match"])["result_type"] == "Tie"
+
+    # Correcting the chase immediately replaces the generated tie with a wicket result.
+    service.save_innings(
+        entity_id=second_id, match_id=core["match"], innings_number=2,
+        batting_team_id=core["away"], bowling_team_id=core["home"],
+        runs=101, wickets=9, balls=100, completed=True,
+    )
+    assert service.repo.matches.get(core["match"])["result_type"] == "Wickets"
+
+    # An official tie-break outcome remains stored through later innings corrections.
+    service.save_match(
+        entity_id=core["match"], competition_id=core["competition"],
+        match_date="2026-07-20", venue_id=core["venue"],
+        home_team_id=core["home"], away_team_id=core["away"],
+        match_stage="League", match_status="Completed",
+        winning_team_id=core["home"], result_type="Wickets",
+        result_margin_value=1, result_margin_type="Wickets",
+        result_method="Super Over", result_source="Manual",
+        result_override_reason="Official Super Over result.",
+        _defer_completion_validation=True,
+    )
+    service.save_innings(
+        entity_id=second_id, match_id=core["match"], innings_number=2,
+        batting_team_id=core["away"], bowling_team_id=core["home"],
+        runs=99, wickets=9, balls=100, completed=True,
+    )
+    match = service.repo.matches.get(core["match"])
+    assert match["winning_team_id"] == core["home"]
+    assert match["result_method"] == "Super Over"
+    assert service.derive_match_result(core["match"])["result_type"] == "Runs"

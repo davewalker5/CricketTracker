@@ -1,0 +1,10 @@
+services:
+  crickettracker:
+    container_name: crickettracker
+    image: davewalker5/crickettracker:latest
+    platform: linux/amd64
+    restart: always
+    ports:
+      - "8105:8501"
+    volumes:
+      - /path/to/cricket-tracker/db/folder:/var/opt/crickettracker/
