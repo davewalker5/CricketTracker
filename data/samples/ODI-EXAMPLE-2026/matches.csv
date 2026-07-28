@@ -1,1 +1,2 @@
 competition,season,match_date,start_time,venue,home_team,away_team,match_stage,match_status,toss_winner,toss_decision,winning_team,result_type,result_margin_value,result_margin_type,result_method,result_source,result_override_reason,scheduled_balls,revised_balls,target_runs,revised_target_runs
+Example ODI League,2026,2026-07-10,10:30,Sample National Ground,Sample Blues,Sample Greens,League,Scheduled,Sample Blues,Bat,,,,,DLS,,,300,,251,180

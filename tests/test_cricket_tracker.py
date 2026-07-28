@@ -5,13 +5,18 @@ from __future__ import annotations
 import csv
 import io
 import sqlite3
+import ast
+from pathlib import Path
 
 import pandas as pd
 import pytest
 
+from cricket_tracker.database import apply_migrations
+
 from cricket_tracker import app as tracker_app
 from cricket_tracker.cli import streamlit_entrypoint
 from cricket_tracker.exports import DATASETS, export_csv
+from cricket_tracker.formats import format_delivery_count
 from cricket_tracker.imports import CricketImporter
 from cricket_tracker.services import CricketService, ValidationError
 from cricket_tracker.standings import (
@@ -20,6 +25,26 @@ from cricket_tracker.standings import (
     combined_competition_ids,
     table_to_csv,
 )
+
+
+def test_migrations_do_not_print_sql_results(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Keep routine SQLite migration result sets out of startup output.
+
+    :param tmp_path: Pytest temporary directory.
+    :param capsys: Pytest standard-stream capture helper.
+    :return: None.
+    """
+    database = tmp_path / "quiet-migrations.db"
+
+    # A fresh database exercises every migration, including SQLite checks that
+    # Yoyo would otherwise render as SQL headings and empty result tables.
+    apply_migrations(database)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "quick_check" not in captured.err
 
 
 def test_streamlit_entrypoint_is_packaged() -> None:
@@ -71,11 +96,14 @@ def test_initial_schema_is_cricket_native(connection: sqlite3.Connection) -> Non
         )
     }
     assert {"matches", "innings", "competitions", "competition_rulesets"} <= tables
+    assert "match_formats" in tables
     assert "competition_seasons" not in tables
     assert "referees" not in tables
     columns = {row["name"] for row in connection.execute("PRAGMA table_info(matches)")}
     assert "home_score" not in columns
     assert {"match_status", "winning_team_id", "result_margin_type"} <= columns
+    assert {"scheduled_balls", "revised_balls"} <= columns
+    assert {"target_runs", "revised_target_runs"} <= columns
     assert "notes" not in columns
     team_columns = {
         row["name"] for row in connection.execute("PRAGMA table_info(teams)")
@@ -87,6 +115,7 @@ def test_initial_schema_is_cricket_native(connection: sqlite3.Connection) -> Non
         row["name"] for row in connection.execute("PRAGMA table_info(innings)")
     }
     assert "notes" not in innings_columns
+    assert "innings_status" in innings_columns
     for table in ("venues", "competitions"):
         columns = {
             row["name"] for row in connection.execute(f"PRAGMA table_info({table})")
@@ -99,6 +128,856 @@ def test_initial_schema_is_cricket_native(connection: sqlite3.Connection) -> Non
         )
     }
     assert "notes" not in ruleset_columns
+    assert "match_format_id" in ruleset_columns
+
+
+def test_standard_match_formats_are_seeded_and_hundred_is_associated(
+    service: CricketService,
+) -> None:
+    """Verify the format foundation and backward-compatible ruleset association.
+
+    :param service: Cricket service.
+    :return: None.
+    """
+    # Stable codes let later phases select behaviour without inspecting display names.
+    formats = {row["code"]: row for row in service.list_match_formats()}
+
+    assert set(formats) == {"HUNDRED", "T20", "ODI"}
+    assert formats["HUNDRED"]["limit_unit"] == "balls"
+    assert formats["HUNDRED"]["innings_limit"] == 100
+    assert formats["HUNDRED"]["balls_per_over"] is None
+    assert formats["T20"]["innings_limit"] == 20
+    assert formats["T20"]["balls_per_over"] == 6
+    assert formats["ODI"]["innings_limit"] == 50
+    assert service.list_rulesets()[0]["match_format_id"] == formats["HUNDRED"]["id"]
+
+
+@pytest.mark.parametrize(
+    ("legal_balls", "expected"),
+    [
+        (0, "0.0 overs"),
+        (5, "0.5 overs"),
+        (6, "1.0 overs"),
+        (17, "2.5 overs"),
+        (83, "13.5 overs"),
+        (120, "20.0 overs"),
+        (300, "50.0 overs"),
+    ],
+)
+def test_format_delivery_count_uses_cricket_over_notation(
+    legal_balls: int, expected: str
+) -> None:
+    """Convert legal balls into six-ball over notation.
+
+    :param legal_balls: Canonical delivery count.
+    :param expected: Expected cricket notation.
+    :return: None.
+    """
+    # The remainder after complete overs is displayed after the separator.
+    assert format_delivery_count(
+        legal_balls, limit_unit="overs", balls_per_over=6
+    ) == expected
+
+
+def test_format_delivery_count_preserves_hundred_display() -> None:
+    """Keep The Hundred delivery progress expressed in balls.
+
+    :return: None.
+    """
+    # Ball-based formats do not require or use an over size.
+    assert format_delivery_count(
+        69, limit_unit="balls", balls_per_over=None
+    ) == "69 balls"
+
+
+def test_innings_list_uses_its_ruleset_match_format(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Expose format-aware delivery progress for innings presentation.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    t20_format = next(
+        row for row in service.list_match_formats() if row["code"] == "T20"
+    )
+    # Reassociate the fixture ruleset to prove display is driven by format metadata.
+    service.repo.rulesets.update(
+        core["ruleset"], {"match_format_id": t20_format["id"]}
+    )
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=1,
+        batting_team_id=core["home"],
+        bowling_team_id=core["away"],
+        runs=100,
+        wickets=3,
+        balls=83,
+        completed=False,
+    )
+
+    assert service.list_innings(core["match"])[0]["delivery_display"] == "13.5 overs"
+
+
+def assign_core_match_format(
+    service: CricketService, core: dict[str, int], format_code: str
+) -> None:
+    """Associate the core fixture's ruleset with a seeded match format.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :param format_code: Stable seeded match-format code.
+    :return: None.
+    """
+    # Ruleset association is the sole source of format behavior for its competition.
+    match_format = next(
+        row for row in service.list_match_formats() if row["code"] == format_code
+    )
+    service.repo.rulesets.update(
+        core["ruleset"], {"match_format_id": match_format["id"]}
+    )
+
+
+@pytest.mark.parametrize(
+    ("format_code", "expected_balls", "expected_display"),
+    [
+        ("HUNDRED", 100, "100 balls"),
+        ("T20", 120, "20.0 overs"),
+        ("ODI", 300, "50.0 overs"),
+    ],
+)
+def test_match_format_drives_default_innings_allocation(
+    service: CricketService,
+    core: dict[str, int],
+    format_code: str,
+    expected_balls: int,
+    expected_display: str,
+) -> None:
+    """Resolve each standard format's default allocation in canonical balls.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :param format_code: Seeded match-format code.
+    :param expected_balls: Expected canonical legal-ball allocation.
+    :param expected_display: Expected format-aware allocation display.
+    :return: None.
+    """
+    assign_core_match_format(service, core, format_code)
+
+    # Null match overrides deliberately inherit the selected format definition.
+    assert service.effective_innings_balls(core["match"]) == expected_balls
+    match = next(
+        row for row in service.list_matches() if row["id"] == core["match"]
+    )
+    assert match["effective_delivery_display"] == expected_display
+
+
+def test_reduced_match_allocation_controls_innings_validation(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Apply a reduced T20 allocation and reject deliveries beyond it.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    assign_core_match_format(service, core, "T20")
+    service.save_match(
+        entity_id=core["match"],
+        competition_id=core["competition"],
+        match_date="2026-07-20",
+        venue_id=core["venue"],
+        home_team_id=core["home"],
+        away_team_id=core["away"],
+        scheduled_balls=120,
+        revised_balls=90,
+    )
+
+    assert service.effective_innings_balls(core["match"]) == 90
+    with pytest.raises(ValidationError, match="cannot exceed"):
+        service.save_innings(
+            match_id=core["match"],
+            innings_number=1,
+            batting_team_id=core["home"],
+            bowling_team_id=core["away"],
+            runs=80,
+            wickets=3,
+            balls=91,
+            innings_status="in_progress",
+        )
+
+
+def test_revised_allocation_cannot_exceed_scheduled_allocation(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Reject a revised allocation that increases the scheduled match length.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    assign_core_match_format(service, core, "T20")
+
+    # A reduced allocation may shorten but never lengthen the scheduled innings.
+    with pytest.raises(ValidationError, match="cannot exceed"):
+        service.save_match(
+            entity_id=core["match"],
+            competition_id=core["competition"],
+            match_date="2026-07-20",
+            venue_id=core["venue"],
+            home_team_id=core["home"],
+            away_team_id=core["away"],
+            scheduled_balls=90,
+            revised_balls=96,
+        )
+
+
+def test_all_out_status_requires_every_available_wicket(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Validate the wicket condition represented by an all-out status.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    with pytest.raises(ValidationError, match="every available wicket"):
+        service.save_innings(
+            match_id=core["match"],
+            innings_number=1,
+            batting_team_id=core["home"],
+            bowling_team_id=core["away"],
+            runs=95,
+            wickets=9,
+            balls=72,
+            innings_status="all_out",
+        )
+
+    innings_id = service.save_innings(
+        match_id=core["match"],
+        innings_number=1,
+        batting_team_id=core["home"],
+        bowling_team_id=core["away"],
+        runs=95,
+        wickets=10,
+        balls=72,
+        innings_status="all_out",
+    )
+    # Terminal semantic statuses remain compatible with the legacy completion flag.
+    assert service.repo.innings.get(innings_id)["completed"] == 1
+
+
+def test_target_reached_status_validates_chasing_score(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Require the second innings to meet its explicitly recorded target.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=1,
+        batting_team_id=core["home"],
+        bowling_team_id=core["away"],
+        runs=149,
+        wickets=6,
+        balls=100,
+        innings_status="innings_limit_reached",
+    )
+    with pytest.raises(ValidationError, match="meet or exceed"):
+        service.save_innings(
+            match_id=core["match"],
+            innings_number=2,
+            batting_team_id=core["away"],
+            bowling_team_id=core["home"],
+            runs=149,
+            wickets=4,
+            balls=87,
+            target=150,
+            innings_status="target_reached",
+        )
+
+    innings_id = service.save_innings(
+        match_id=core["match"],
+        innings_number=2,
+        batting_team_id=core["away"],
+        bowling_team_id=core["home"],
+        runs=150,
+        wickets=4,
+        balls=88,
+        target=150,
+        innings_status="target_reached",
+    )
+    assert service.repo.innings.get(innings_id)["innings_status"] == "target_reached"
+
+
+def test_innings_limit_status_requires_full_effective_allocation(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Require an innings-limit status to match the effective allocation.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    with pytest.raises(ValidationError, match="full allocation"):
+        service.save_innings(
+            match_id=core["match"],
+            innings_number=1,
+            batting_team_id=core["home"],
+            bowling_team_id=core["away"],
+            runs=120,
+            wickets=5,
+            balls=99,
+            innings_status="innings_limit_reached",
+        )
+
+
+def test_t20_result_is_calculated_as_win_by_runs(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Calculate the representative T20 defence from completed innings.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    assign_core_match_format(service, core, "T20")
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=1,
+        batting_team_id=core["home"],
+        bowling_team_id=core["away"],
+        runs=165,
+        wickets=7,
+        balls=120,
+        innings_status="innings_limit_reached",
+    )
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=2,
+        batting_team_id=core["away"],
+        bowling_team_id=core["home"],
+        runs=151,
+        wickets=9,
+        balls=120,
+        innings_status="innings_limit_reached",
+    )
+
+    # Completing the second innings stores the structured calculated outcome.
+    result = service.repo.matches.get(core["match"])
+    assert result["winning_team_id"] == core["home"]
+    assert result["result_type"] == "Runs"
+    assert result["result_margin_value"] == 14
+    assert result["result_source"] == "Calculated"
+
+
+def test_t20_result_is_calculated_as_win_by_wickets(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Calculate the representative successful T20 chase.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    assign_core_match_format(service, core, "T20")
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=1,
+        batting_team_id=core["home"],
+        bowling_team_id=core["away"],
+        runs=165,
+        wickets=7,
+        balls=120,
+        innings_status="innings_limit_reached",
+    )
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=2,
+        batting_team_id=core["away"],
+        bowling_team_id=core["home"],
+        runs=166,
+        wickets=4,
+        balls=111,
+        innings_status="target_reached",
+    )
+
+    result = service.repo.matches.get(core["match"])
+    assert result["winning_team_id"] == core["away"]
+    assert result["result_type"] == "Wickets"
+    assert result["result_margin_value"] == 6
+
+
+def test_odi_equal_completed_scores_are_a_tie(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Calculate the representative tied ODI result.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    assign_core_match_format(service, core, "ODI")
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=1,
+        batting_team_id=core["home"],
+        bowling_team_id=core["away"],
+        runs=275,
+        wickets=8,
+        balls=300,
+        innings_status="innings_limit_reached",
+    )
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=2,
+        batting_team_id=core["away"],
+        bowling_team_id=core["home"],
+        runs=275,
+        wickets=10,
+        balls=299,
+        innings_status="all_out",
+    )
+
+    result = service.repo.matches.get(core["match"])
+    assert result["winning_team_id"] is None
+    assert result["result_type"] == "Tie"
+    assert service.result_description(result) == "Match tied"
+
+
+def test_revised_target_drives_dls_wicket_result(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Use an authoritative revised target without calculating DLS.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    assign_core_match_format(service, core, "ODI")
+    # The uninterrupted first innings is recorded before the chase is reduced.
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=1,
+        batting_team_id=core["home"],
+        bowling_team_id=core["away"],
+        runs=250,
+        wickets=8,
+        balls=300,
+        innings_status="innings_limit_reached",
+    )
+    service.save_match(
+        entity_id=core["match"],
+        competition_id=core["competition"],
+        match_date="2026-07-20",
+        venue_id=core["venue"],
+        home_team_id=core["home"],
+        away_team_id=core["away"],
+        scheduled_balls=300,
+        revised_balls=180,
+        target_runs=251,
+        revised_target_runs=180,
+        result_method="DLS",
+    )
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=2,
+        batting_team_id=core["away"],
+        bowling_team_id=core["home"],
+        runs=181,
+        wickets=5,
+        balls=170,
+        innings_status="target_reached",
+    )
+
+    result = service.repo.matches.get(core["match"])
+    assert result["winning_team_id"] == core["away"]
+    assert result["result_type"] == "Wickets"
+    assert result["result_margin_value"] == 5
+    assert result["result_method"] == "DLS"
+    assert service.result_description(
+        {**result, "winning_team_name": "Oval Invincibles Men"}
+    ) == "Oval Invincibles Men won by 5 wickets using the DLS method"
+
+
+@pytest.mark.parametrize(
+    ("match_status", "result_type", "description"),
+    [
+        ("No Result", "No Result", "No result"),
+        ("Abandoned", "Abandoned", "Match abandoned"),
+    ],
+)
+def test_terminal_match_status_calculates_non_numeric_result(
+    service: CricketService,
+    core: dict[str, int],
+    match_status: str,
+    result_type: str,
+    description: str,
+) -> None:
+    """Calculate an exceptional outcome without requiring innings summaries.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :param match_status: Terminal match status.
+    :param result_type: Expected structured result type.
+    :param description: Expected supporter-friendly description.
+    :return: None.
+    """
+    service.save_match(
+        entity_id=core["match"],
+        competition_id=core["competition"],
+        match_date="2026-07-20",
+        venue_id=core["venue"],
+        home_team_id=core["home"],
+        away_team_id=core["away"],
+        match_status=match_status,
+    )
+
+    result = service.repo.matches.get(core["match"])
+    assert result["result_type"] == result_type
+    assert result["result_source"] == "Calculated"
+    assert service.result_description(result) == description
+    # Placeholder innings must not invalidate an outcome determined by match status.
+    service.save_innings(
+        match_id=core["match"], innings_number=1, completed=False
+    )
+    assert service.repo.matches.get(core["match"])["result_type"] == result_type
+
+
+def test_manual_super_over_winner_overrides_calculated_tie(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Retain a manual tie-break winner over the underlying calculated tie.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=1,
+        batting_team_id=core["home"],
+        bowling_team_id=core["away"],
+        runs=140,
+        wickets=7,
+        balls=100,
+        completed=True,
+    )
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=2,
+        batting_team_id=core["away"],
+        bowling_team_id=core["home"],
+        runs=140,
+        wickets=8,
+        balls=100,
+        completed=True,
+    )
+    service.save_match(
+        entity_id=core["match"],
+        competition_id=core["competition"],
+        match_date="2026-07-20",
+        venue_id=core["venue"],
+        home_team_id=core["home"],
+        away_team_id=core["away"],
+        match_status="Completed",
+        winning_team_id=core["home"],
+        result_type="Tie",
+        result_method="Super Over",
+        result_source="Manual",
+        result_override_reason="Official Super Over result.",
+    )
+
+    result = service.repo.matches.get(core["match"])
+    assert result["result_source"] == "Manual"
+    assert service.derive_match_result(core["match"])["result_type"] == "Tie"
+    assert service.result_description(
+        {**result, "winning_team_name": "London Spirit Men"}
+    ) == "Match tied; London Spirit Men won the Super Over"
+
+
+def test_abandonment_uses_its_own_ruleset_points(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Award abandonment points independently from no-result points.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    service.repo.rulesets.update(
+        core["ruleset"],
+        {"points_for_no_result": 1, "points_for_abandonment": 3},
+    )
+    service.save_match(
+        entity_id=core["match"],
+        competition_id=core["competition"],
+        match_date="2026-07-20",
+        venue_id=core["venue"],
+        home_team_id=core["home"],
+        away_team_id=core["away"],
+        match_status="Abandoned",
+    )
+
+    # Both teams receive the competition's explicit abandonment allocation.
+    table = calculate_standings(
+        service.repo.connection, core["competition"]
+    )
+    assert all(row["points"] == 3 for row in table)
+    assert all(row["no_result"] == 1 for row in table)
+
+
+def test_tie_break_winner_receives_win_points_in_standings(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Treat an official Super Over winner as a win rather than a standing tie.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    service.save_innings(
+        match_id=core["match"], innings_number=1,
+        batting_team_id=core["home"], bowling_team_id=core["away"],
+        runs=150, wickets=7, balls=100, completed=True,
+    )
+    service.save_innings(
+        match_id=core["match"], innings_number=2,
+        batting_team_id=core["away"], bowling_team_id=core["home"],
+        runs=150, wickets=8, balls=100, completed=True,
+    )
+    service.save_match(
+        entity_id=core["match"],
+        competition_id=core["competition"],
+        match_date="2026-07-20",
+        venue_id=core["venue"],
+        home_team_id=core["home"],
+        away_team_id=core["away"],
+        match_status="Completed",
+        winning_team_id=core["home"],
+        result_type="Tie",
+        result_method="Super Over",
+        result_source="Manual",
+        result_override_reason="Official Super Over result.",
+    )
+
+    table = calculate_standings(
+        service.repo.connection, core["competition"]
+    )
+    winner = next(row for row in table if row["team_id"] == core["home"])
+    loser = next(row for row in table if row["team_id"] == core["away"])
+    assert winner["won"] == 1 and winner["tied"] == 0
+    assert loser["lost"] == 1 and loser["tied"] == 0
+    assert winner["points"] == 4
+
+
+def test_knockout_only_ruleset_has_no_standings(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Suppress standings for a competition whose ruleset opts out.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    service.repo.rulesets.update(core["ruleset"], {"has_standings": 0})
+
+    # A knockout-only competition returns no rows instead of a misleading table.
+    assert calculate_standings(
+        service.repo.connection, core["competition"]
+    ) == []
+
+
+def test_t20_nrr_credits_an_all_out_team_with_full_allocation(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Use the T20 allocation for an early all-out NRR denominator.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    assign_core_match_format(service, core, "T20")
+    # This test reuses the Hundred ruleset, so adopt the T20 six-ball rate unit.
+    service.repo.rulesets.update(core["ruleset"], {"balls_per_rate_unit": 6})
+    service.save_innings(
+        match_id=core["match"], innings_number=1,
+        batting_team_id=core["home"], bowling_team_id=core["away"],
+        runs=120, wickets=10, balls=60, innings_status="all_out",
+    )
+    service.save_innings(
+        match_id=core["match"], innings_number=2,
+        batting_team_id=core["away"], bowling_team_id=core["home"],
+        runs=121, wickets=0, balls=60, innings_status="target_reached",
+    )
+
+    table = calculate_standings(
+        service.repo.connection, core["competition"]
+    )
+    home = next(row for row in table if row["team_id"] == core["home"])
+    away = next(row for row in table if row["team_id"] == core["away"])
+    # Home: 120 from credited 120 balls; away: 121 from 60 balls.
+    assert home["net_run_rate"] == -6.1
+    assert away["net_run_rate"] == 6.1
+
+
+def test_revised_target_match_is_excluded_from_nrr(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Avoid presenting partial NRR for a revised-target match.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    assign_core_match_format(service, core, "T20")
+    service.save_innings(
+        match_id=core["match"], innings_number=1,
+        batting_team_id=core["home"], bowling_team_id=core["away"],
+        runs=160, wickets=6, balls=120,
+        innings_status="innings_limit_reached",
+    )
+    service.save_match(
+        entity_id=core["match"], competition_id=core["competition"],
+        match_date="2026-07-20", venue_id=core["venue"],
+        home_team_id=core["home"], away_team_id=core["away"],
+        scheduled_balls=120, revised_balls=60,
+        revised_target_runs=80, result_method="DLS",
+    )
+    service.save_innings(
+        match_id=core["match"], innings_number=2,
+        batting_team_id=core["away"], bowling_team_id=core["home"],
+        runs=81, wickets=3, balls=55, innings_status="target_reached",
+    )
+
+    table = calculate_standings(
+        service.repo.connection, core["competition"]
+    )
+    assert all(row["played"] == 1 for row in table)
+    assert all(row["net_run_rate"] is None for row in table)
+    assert "net_run_rate" not in table_to_csv(table).splitlines()[0]
+
+
+def test_ruleset_restrictions_are_enforced_for_match_outcomes(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Reject revised targets and tie-break winners disabled by a ruleset.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    service.repo.rulesets.update(
+        core["ruleset"],
+        {
+            "revised_targets_allowed": 0,
+            "tie_break_winner_allowed": 0,
+        },
+    )
+    with pytest.raises(ValidationError, match="revised targets"):
+        service.save_match(
+            entity_id=core["match"], competition_id=core["competition"],
+            match_date="2026-07-20", venue_id=core["venue"],
+            home_team_id=core["home"], away_team_id=core["away"],
+            revised_target_runs=80, result_method="DLS",
+        )
+    with pytest.raises(ValidationError, match="tie-break winner"):
+        service.save_match(
+            entity_id=core["match"], competition_id=core["competition"],
+            match_date="2026-07-20", venue_id=core["venue"],
+            home_team_id=core["home"], away_team_id=core["away"],
+            match_status="Completed", winning_team_id=core["home"],
+            result_type="Tie", result_method="Super Over",
+            result_source="Manual", result_override_reason="Official result.",
+        )
+
+
+def test_non_standing_tie_awaits_an_official_tie_break(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Withhold an official tied result when the ruleset requires a tie-break.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    service.repo.rulesets.update(core["ruleset"], {"ties_may_stand": 0})
+    service.save_innings(
+        match_id=core["match"], innings_number=1,
+        batting_team_id=core["home"], bowling_team_id=core["away"],
+        runs=130, wickets=7, balls=100, completed=True,
+    )
+    service.save_innings(
+        match_id=core["match"], innings_number=2,
+        batting_team_id=core["away"], bowling_team_id=core["home"],
+        runs=130, wickets=8, balls=100, completed=True,
+    )
+
+    # The score fact remains calculable, but no official table result exists yet.
+    assert service.derive_match_result(core["match"])["result_type"] == "Tie"
+    assert service.repo.matches.get(core["match"])["result_type"] is None
+    table = calculate_standings(
+        service.repo.connection, core["competition"]
+    )
+    assert all(row["played"] == 0 for row in table)
+
+
+def test_disabling_nrr_removes_it_from_ranking_and_export(
+    service: CricketService,
+) -> None:
+    """Keep a disabled NRR criterion out of sort configuration and CSV output.
+
+    :param service: Cricket service.
+    :return: None.
+    """
+    match_format_id = next(
+        row["id"] for row in service.list_match_formats() if row["code"] == "T20"
+    )
+    ruleset_id = service.save_ruleset(
+        name="NRR-free T20",
+        match_format_id=match_format_id,
+        uses_net_run_rate=False,
+        table_sort_order="points,net_run_rate,wins",
+    )
+
+    ruleset = service.repo.rulesets.get(ruleset_id)
+    assert ruleset["uses_net_run_rate"] == 0
+    assert ruleset["table_sort_order"] == "points,wins"
+    assert table_to_csv(
+        [{"team": "Example", "played": 0, "points": 0, "net_run_rate": None}]
+    ).splitlines()[0] == "team,played,won,lost,tied,no_result,points"
+
+
+@pytest.mark.parametrize(
+    ("legal_balls", "limit_unit", "balls_per_over"),
+    [
+        (-1, "balls", None),
+        (12, "sessions", None),
+        (12, "overs", None),
+        (12, "overs", 0),
+    ],
+)
+def test_format_delivery_count_rejects_invalid_values(
+    legal_balls: int, limit_unit: str, balls_per_over: int | None
+) -> None:
+    """Reject invalid delivery counts and format configuration.
+
+    :param legal_balls: Candidate delivery count.
+    :param limit_unit: Candidate limit unit.
+    :param balls_per_over: Candidate over size.
+    :return: None.
+    """
+    # Invalid format metadata must fail early instead of producing misleading output.
+    with pytest.raises(ValueError):
+        format_delivery_count(
+            legal_balls,
+            limit_unit=limit_unit,
+            balls_per_over=balls_per_over,
+        )
 
 
 def test_match_validation(service: CricketService, core: dict[str, int]) -> None:
@@ -250,7 +1129,91 @@ def test_csv_exports_separate_matches_and_innings(
         service.repo.connection, "innings"
     ).splitlines()[0].split(",")
     assert "notes" not in innings_header
+    assert "innings_status" in innings_header
+    match_header = match_export.splitlines()[0].split(",")
+    assert {
+        "scheduled_balls", "revised_balls", "target_runs", "revised_target_runs",
+    } <= set(match_header)
     assert set(DATASETS) >= {"matches", "innings"}
+
+
+def import_dataset_folder(
+    service: CricketService, folder: Path
+) -> dict[str, object]:
+    """Import one self-contained CSV folder in dependency order.
+
+    :param service: Cricket service.
+    :param folder: Folder containing the supported dataset files.
+    :return: Import results keyed by dataset name.
+    """
+    order = (
+        "countries", "venues", "teams", "competition_rulesets",
+        "competitions", "matches", "innings",
+    )
+    results: dict[str, object] = {}
+    for dataset in order:
+        # Every sample follows the same order users can apply through the CLI.
+        results[dataset] = CricketImporter(
+            service.repo.connection
+        ).import_csv(dataset, (folder / f"{dataset}.csv").read_bytes())
+    return results
+
+
+@pytest.mark.parametrize(
+    ("folder_name", "format_code", "result_type", "result_method"),
+    [
+        ("T20-EXAMPLE-2026", "T20", "Runs", "Standard"),
+        ("ODI-EXAMPLE-2026", "ODI", "Wickets", "DLS"),
+    ],
+)
+def test_limited_overs_sample_dataset_imports_end_to_end(
+    service: CricketService,
+    folder_name: str,
+    format_code: str,
+    result_type: str,
+    result_method: str,
+) -> None:
+    """Import a sample competition and calculate its expected result.
+
+    :param service: Cricket service.
+    :param folder_name: Sample dataset folder.
+    :param format_code: Expected match-format code.
+    :param result_type: Expected calculated result type.
+    :param result_method: Expected calculated result method.
+    :return: None.
+    """
+    folder = Path(__file__).parents[1] / "data" / "samples" / folder_name
+    results = import_dataset_folder(service, folder)
+
+    assert all(not result.errors for result in results.values())
+    competition = service.list_competitions()[0]
+    match = service.list_matches(int(competition["id"]))[0]
+    assert competition["match_format_code"] == format_code
+    assert match["result_type"] == result_type
+    assert match["result_method"] == result_method
+    assert len(service.list_innings(int(match["id"]))) == 2
+
+
+def test_updated_hundred_import_folders_remain_compatible(
+    service: CricketService,
+) -> None:
+    """Import both maintained Hundred datasets with their extended schemas.
+
+    :param service: Cricket service.
+    :return: None.
+    """
+    imports_root = Path(__file__).parents[1] / "data" / "imports"
+    all_results = []
+    for folder_name in ("HUNDRED-MEN-2026", "HUNDRED-WOMEN-2026"):
+        # Shared reference rows may skip on the second folder, but none may fail.
+        all_results.extend(
+            import_dataset_folder(
+                service, imports_root / folder_name
+            ).values()
+        )
+
+    assert all(not result.errors for result in all_results)
+    assert len(service.list_competitions()) == 2
 
 
 def test_csv_exports_can_be_filtered_by_competition(
@@ -423,6 +1386,112 @@ def test_pending_success_is_displayed_after_rerun(
 
     assert displayed == ["Innings saved."]
     assert "_pending_success" not in session_state
+
+
+def test_innings_validation_error_survives_table_rerun(
+    service: CricketService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Persist a record validation error across Streamlit table reruns.
+
+    :param service: Cricket service.
+    :param monkeypatch: Pytest attribute patching helper.
+    :return: None.
+    """
+    session_state: dict[str, str] = {}
+    displayed: list[str] = []
+    error_key = "innings_save_error_1_new"
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+    monkeypatch.setattr(tracker_app.st, "error", displayed.append)
+
+    def reject_innings() -> None:
+        """Represent format-aware innings validation failing.
+
+        :return: None.
+        :raises ValidationError: Always, with a representative allocation error.
+        """
+        # The UI helper must retain domain errors raised before any save can commit.
+        raise ValidationError("Legal balls cannot exceed the match allocation of 120.")
+
+    tracker_app._save(
+        reject_innings,
+        "Innings saved.",
+        service.repo.connection,
+        error_key=error_key,
+    )
+    tracker_app._show_persistent_error(error_key)
+
+    assert session_state[error_key] == (
+        "Legal balls cannot exceed the match allocation of 120."
+    )
+    assert displayed == [session_state[error_key], session_state[error_key]]
+
+
+def test_negative_runs_reach_service_validation_and_are_not_saved(
+    service: CricketService,
+    core: dict[str, int],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject negative runs instead of allowing the widget to clamp them.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :param monkeypatch: Pytest attribute patching helper.
+    :return: None.
+    """
+    session_state: dict[str, str] = {}
+    displayed: list[str] = []
+    error_key = "innings_save_error_1_new"
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+    monkeypatch.setattr(tracker_app.st, "error", displayed.append)
+
+    tracker_app._save(
+        lambda: service.save_innings(
+            match_id=core["match"],
+            innings_number=1,
+            batting_team_id=core["home"],
+            bowling_team_id=core["away"],
+            runs=-1,
+            wickets=0,
+            balls=1,
+            innings_status="in_progress",
+        ),
+        "Innings saved.",
+        service.repo.connection,
+        error_key=error_key,
+    )
+
+    assert session_state[error_key] == (
+        "Runs must be a whole number of zero or more."
+    )
+    assert displayed == [session_state[error_key]]
+    assert service.list_innings(core["match"]) == []
+
+
+def test_editable_numeric_controls_do_not_silently_clamp_domain_values() -> None:
+    """Keep validation bounds out of editable numeric widgets.
+
+    :return: None.
+    """
+    source = Path(tracker_app.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    bounded_editable_controls: list[int] = []
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "number_input"
+        ):
+            continue
+        keywords = {keyword.arg: keyword.value for keyword in node.keywords}
+        disabled = keywords.get("disabled")
+        is_read_only = (
+            isinstance(disabled, ast.Constant) and disabled.value is True
+        )
+        # Read-only calculated displays may retain harmless presentation bounds.
+        if not is_read_only and {"min_value", "max_value"} & set(keywords):
+            bounded_editable_controls.append(node.lineno)
+
+    assert bounded_editable_controls == []
 
 
 def test_export_dataset_change_resets_custom_file_stem(
@@ -693,10 +1762,14 @@ def test_innings_view_uses_persistent_tab_selection(
 
     monkeypatch.setattr(tracker_app.st, "radio", select_innings)
     monkeypatch.setattr(
-        tracker_app, "_match_editor_tab", lambda _service: rendered.append("Matches")
+        tracker_app,
+        "_match_editor_tab",
+        lambda _service, _read_only=False: rendered.append("Matches"),
     )
     monkeypatch.setattr(
-        tracker_app, "_innings_editor_tab", lambda _service: rendered.append("Innings")
+        tracker_app,
+        "_innings_editor_tab",
+        lambda _service, _read_only=False: rendered.append("Innings"),
     )
 
     tracker_app._matches(service)
@@ -783,6 +1856,7 @@ def test_planned_innings_import_allows_blank_details(
     assert innings["wickets"] is None
     assert innings["balls"] is None
     assert innings["completed"] == 0
+    assert innings["innings_status"] == "not_started"
 
 
 def test_completed_match_result_is_derived_from_innings(

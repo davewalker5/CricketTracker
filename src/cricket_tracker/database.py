@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
+from io import StringIO
 from pathlib import Path
 from typing import Iterator
 
@@ -60,7 +61,9 @@ def apply_migrations(path: Path | str | None = None) -> None:
         backend = get_backend(f"sqlite:///{target.resolve()}")
         migrations = read_migrations(str(migrations_path()))
         with backend.lock():
-            backend.apply_migrations(backend.to_apply(migrations))
+            # Yoyo prints tabulated output for SQLite validation statements that
+            # return an empty result set; retain errors while hiding that noise.
+            with redirect_stdout(StringIO()):
+                backend.apply_migrations(backend.to_apply(migrations))
     except (OSError, sqlite3.Error) as error:
         raise RuntimeError(f"Cannot migrate Cricket Tracker database at {target}.") from error
-

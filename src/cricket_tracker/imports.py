@@ -262,10 +262,21 @@ class CricketImporter:
         )
         self.service.save_ruleset(
             name=row.get("name"),
+            match_format_id=(
+                self._id(
+                    "match_formats", row.get("match_format"), "match format"
+                )
+                or 1
+            ),
             points_for_win=row.get("points_for_win", 2),
             points_for_tie=row.get("points_for_tie", 1),
             points_for_no_result=row.get("points_for_no_result", 1),
+            points_for_abandonment=row.get(
+                "points_for_abandonment",
+                row.get("points_for_no_result", 1),
+            ),
             points_for_loss=row.get("points_for_loss", 0),
+            has_standings=_boolean(row.get("has_standings")),
             uses_net_run_rate=_boolean(row.get("uses_net_run_rate")),
             include_knockout_matches_in_table=_boolean(
                 row.get("include_knockout_matches_in_table"), False
@@ -275,6 +286,13 @@ class CricketImporter:
             wickets_per_innings=row.get("wickets_per_innings", 10),
             balls_per_rate_unit=row.get("balls_per_rate_unit", 6),
             combine_gender_tables=_boolean(row.get("combine_gender_tables")),
+            ties_may_stand=_boolean(row.get("ties_may_stand")),
+            tie_break_winner_allowed=_boolean(
+                row.get("tie_break_winner_allowed")
+            ),
+            revised_targets_allowed=_boolean(
+                row.get("revised_targets_allowed")
+            ),
         )
 
     def _competition(self, row: dict[str, str]) -> None:
@@ -340,6 +358,12 @@ class CricketImporter:
             result_method=row.get("result_method"),
             result_source=row.get("result_source"),
             result_override_reason=row.get("result_override_reason"),
+            scheduled_balls=_optional_integer(row.get("scheduled_balls")),
+            revised_balls=_optional_integer(row.get("revised_balls")),
+            target_runs=_optional_integer(row.get("target_runs")),
+            revised_target_runs=_optional_integer(
+                row.get("revised_target_runs")
+            ),
             _defer_completion_validation=True,
         )
 
@@ -421,4 +445,5 @@ class CricketImporter:
             extras=_optional_integer(row.get("extras")),
             target=_optional_integer(row.get("target")),
             completed=_boolean(row.get("completed")),
+            innings_status=row.get("innings_status"),
         )

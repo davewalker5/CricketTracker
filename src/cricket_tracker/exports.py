@@ -32,11 +32,17 @@ EXPORT_QUERIES = {
         ORDER BY t.name COLLATE NOCASE
     """,
     "competition_rulesets": """
-        SELECT name, points_for_win, points_for_tie, points_for_no_result,
-               points_for_loss, uses_net_run_rate, include_knockout_matches_in_table,
-               table_sort_order, balls_per_innings, wickets_per_innings,
-               balls_per_rate_unit, combine_gender_tables
-        FROM competition_rulesets ORDER BY name COLLATE NOCASE
+        SELECT r.name, f.name AS match_format, r.points_for_win,
+               r.points_for_tie, r.points_for_no_result,
+               r.points_for_abandonment, r.points_for_loss, r.has_standings,
+               r.uses_net_run_rate, r.include_knockout_matches_in_table,
+               r.table_sort_order, r.balls_per_innings, r.wickets_per_innings,
+               r.balls_per_rate_unit, r.combine_gender_tables,
+               r.ties_may_stand, r.tie_break_winner_allowed,
+               r.revised_targets_allowed
+        FROM competition_rulesets r
+        JOIN match_formats f ON f.id = r.match_format_id
+        ORDER BY r.name COLLATE NOCASE
     """,
     "competitions": """
         SELECT x.name, x.season, r.name AS ruleset, x.gender, x.format,
@@ -52,7 +58,9 @@ EXPORT_QUERIES = {
                m.match_stage, m.match_status, tw.name AS toss_winner,
                m.toss_decision, w.name AS winning_team, m.result_type,
                m.result_margin_value, m.result_margin_type, m.result_method,
-               m.result_source, m.result_override_reason
+               m.result_source, m.result_override_reason,
+               m.scheduled_balls, m.revised_balls,
+               m.target_runs, m.revised_target_runs
         FROM matches m
         JOIN competitions c ON c.id = m.competition_id
         LEFT JOIN venues v ON v.id = m.venue_id
@@ -66,7 +74,8 @@ EXPORT_QUERIES = {
         SELECT c.name AS competition, c.season, m.match_date,
                h.name AS home_team, a.name AS away_team, i.innings_number,
                b.name AS batting_team, o.name AS bowling_team, i.runs,
-               i.wickets, i.balls, i.extras, i.target, i.completed
+               i.wickets, i.balls, i.extras, i.target, i.completed,
+               i.innings_status
         FROM innings i
         JOIN matches m ON m.id = i.match_id
         JOIN competitions c ON c.id = m.competition_id
@@ -127,7 +136,7 @@ COMPETITION_FILTERS = {
         )
     """,
     "competition_rulesets": """
-        id IN (SELECT ruleset_id FROM competitions WHERE id = :competition_id)
+        r.id IN (SELECT ruleset_id FROM competitions WHERE id = :competition_id)
     """,
     "competitions": "x.id = :competition_id",
     "matches": "m.competition_id = :competition_id",
