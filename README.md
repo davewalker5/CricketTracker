@@ -16,9 +16,7 @@ Built using Python, Streamlit and SQLite, the application emphasises a simple, m
 
 Cricket Tracker is based on the established structure of Rugby Tracker but uses its own independent database, configuration and migration history.
 
----
-
-## Competition Tracking Features
+## Competition Tracking
 
 Cricket Tracker currently provides:
 
@@ -110,8 +108,6 @@ Competition rules determine:
 
 Net run rate is calculated from the recorded innings summaries and displayed alongside the competition standings.
 
----
-
 ## Supported Competitions
 
 The initial release supports:
@@ -123,9 +119,7 @@ Men's and women's competitions are modelled separately while sharing the same te
 
 Additional competitions can be added as their formats, points systems and standings rules are established.
 
----
-
-## Data Exchange Features
+## Data Exchange
 
 ### CSV Import
 
@@ -206,13 +200,11 @@ The convenience wrapper accepts the same values:
 
 CSV export makes the recorded competition data available for spreadsheets, Jupyter notebooks and other external analysis tools.
 
-### PDF League Table Export
+### CSV League Table Export
 
-Calculated league tables can be exported as formatted PDF documents for offline reference or sharing.
+Calculated league tables can be exported in CSV format for offline reference or sharing.
 
-The PDF output is generated from the same dynamically calculated standings displayed in the application.
-
----
+The output is generated from the same dynamically calculated standings displayed in the application.
 
 ## Database Configuration
 
@@ -225,29 +217,6 @@ export CRICKET_TRACKER_DB=/path/to/cricket-tracker.db
 ```
 
 If the environment variable is not set, the application uses its configured fallback database location.
-
-Although the project began from a copy of Rugby Tracker, Cricket Tracker has a clean Yoyo migration history beginning with a single cricket-native schema. Rugby-specific migrations and database structures are not retained.
-
-This allows the two applications to evolve independently.
-
----
-
-## Docker
-
-Cricket Tracker includes Docker configuration for running the application in a container.
-
-Its container, database path and environment variables are independent of Rugby Tracker, allowing both applications to run alongside one another on the same machine.
-
-A typical configuration supplies the database location through `CRICKET_TRACKER_DB`:
-
-```yaml
-environment:
-  CRICKET_TRACKER_DB: /data/cricket-tracker.db
-```
-
-The database directory should be mounted as a persistent Docker volume or host directory.
-
----
 
 ## Project Scope
 
@@ -265,8 +234,6 @@ The initial release deliberately does not attempt to provide:
 - Automated data collection from external services
 
 The focus is on maintaining a clear, useful and inspectable record of competitions, fixtures, results, innings summaries and standings.
-
----
 
 ## Feedback
 
