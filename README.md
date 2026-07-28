@@ -8,11 +8,13 @@
 
 ## Overview
 
-Cricket Tracker is a local-first desktop application for recording, following and exploring cricket competitions, fixtures, results, innings summaries and league standings.
+Cricket Tracker is a local-first desktop application for recording, following and exploring cricket competitions, fixtures, results, innings summaries, league standings and match analysis.
 
-The application supports The Hundred, Twenty20 and one-day competitions. It maintains structured season records without attempting to act as a live-scoring service or reproduce complete scorecards or ball-by-ball data.
+The application supports The Hundred, Twenty20 and one-day cricket. It maintains structured season records without attempting to act as a live-scoring service or reproduce complete scorecards or ball-by-ball data.
 
-Built with Python, Streamlit and SQLite, Cricket Tracker emphasises a simple, maintainable design backed by a cricket-specific relational data model. Competition rules are modelled explicitly so that points, standings and net run rate can be calculated consistently from recorded match and innings data.
+Built with Python, Streamlit and SQLite, Cricket Tracker uses a cricket-specific relational data model designed to remain simple, maintainable and inspectable. Competition rules are modelled explicitly so that points, standings and net run rate can be calculated consistently from recorded match and innings data.
+
+A dedicated Analysis area uses the same records to provide team summaries, batting-first and chasing comparisons, and head-to-head reports.
 
 Cricket Tracker is based on the established structure of Rugby Tracker, but uses its own independent database, configuration and migration history.
 
@@ -116,6 +118,73 @@ Competition rules determine:
 - Which stages are treated as knockout rounds
 
 Net run rate is calculated from completed innings summaries and displayed where enabled by the ruleset. An all-out team is credited with its applicable full allocation. Matches with revised allocations or revised targets are excluded because their competition-specific NRR treatment cannot be derived reliably from the stored summary data.
+
+## Match Analysis
+
+The Analysis area provides a focused set of reports for reviewing teams and matches within a selected competition and season.
+
+The reports use existing match and innings-summary data. They do not require player statistics, full scorecards or ball-by-ball records.
+
+### Team Summary
+
+Review one team's performance across a competition, including:
+
+- Matches played, wins, losses, ties and no results
+- Win percentage
+- Runs scored and conceded
+- Average innings totals
+- Average wickets lost and taken
+- Highest and lowest innings totals
+- Record when batting first
+- Record when chasing
+- Largest and narrowest wins and defeats
+- Chronological match history
+
+Results are presented from the selected team's perspective.
+
+### Batting First vs Chasing
+
+Compare outcomes when teams set a target with outcomes when they chase one.
+
+The report supports competition-wide and team-specific views, including:
+
+- Batting-first and chasing wins
+- Win percentages by innings position
+- Average first-innings total
+- Highest successful chase
+- Lowest successfully defended total
+- Team records when setting and chasing targets
+- A supporting match-detail table
+
+Batting order is derived from the recorded innings rather than inferred from home and away status, the toss or the result type.
+
+### Head-to-Head
+
+Compare two teams within a selected competition and season, including:
+
+- Matches played
+- Wins by each team
+- Ties and no results
+- Win percentages
+- Total and average runs scored
+- Average wickets lost
+- Highest and lowest innings totals
+- Batting-first and chasing records
+- Largest and narrowest wins
+- Highest successful chase
+- Lowest successfully defended total
+- Complete meeting history
+
+### Format-Aware Rates
+
+Scoring-rate calculations reflect the selected match format:
+
+- The Hundred uses runs per 100 balls
+- T20 and one-day cricket use runs per six-ball over
+
+All rates are calculated from legal deliveries rather than decimal over notation.
+
+Reports use each metric only where the recorded data supports it. A completed result may therefore contribute to a win-loss record even when incomplete innings details prevent it from contributing to score or rate analysis.
 
 ## Supported Match Formats
 
@@ -247,7 +316,7 @@ The output is generated from the same dynamically calculated standings displayed
 
 ## Project Scope
 
-Cricket Tracker is intended as a personal competition and results tracker rather than a comprehensive cricket scoring platform.
+Cricket Tracker is intended as a personal competition, results and analysis tool rather than a comprehensive cricket scoring platform.
 
 The application deliberately does not attempt to provide:
 
@@ -264,7 +333,7 @@ The application deliberately does not attempt to provide:
 - Declarations, follow-ons or innings victories
 - Automatic DLS calculations
 
-The focus is on maintaining a clear, useful and inspectable record of competitions, fixtures, results, innings summaries and standings.
+The focus is on maintaining a clear, useful and inspectable record of competitions, fixtures, results, innings summaries, standings and match-level analysis.
 
 ## Feedback
 
