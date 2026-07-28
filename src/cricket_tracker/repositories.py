@@ -144,6 +144,7 @@ class CricketRepository:
                 "result_margin_value", "result_margin_type", "result_method",
                 "result_source", "result_override_reason",
                 "scheduled_balls", "revised_balls",
+                "target_runs", "revised_target_runs",
             ),
         )
         self.innings = Repository(

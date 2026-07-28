@@ -8,6 +8,7 @@ from typing import Any
 
 from cricket_tracker.formats import format_delivery_count, legal_balls_for_limit
 from cricket_tracker.repositories import CricketRepository, Repository
+from cricket_tracker.results import calculate_limited_overs_result
 
 
 GENDERS = ("Men", "Women")
@@ -456,6 +457,37 @@ class CricketService:
         )
         return int(match["revised_balls"] or match["scheduled_balls"] or default_balls)
 
+    def resolve_chasing_target(
+        self, match_id: int, supplied_target: int | None = None
+    ) -> int | None:
+        """Resolve the authoritative target for a match's chasing innings.
+
+        :param match_id: Match identifier.
+        :param supplied_target: Optional legacy target stored with the innings.
+        :return: Revised, supplied, original, or derived target; otherwise ``None``.
+        :raises ValidationError: If the match does not exist.
+        """
+        match = self.repo.matches.get(match_id)
+        if not match:
+            raise ValidationError("Select a valid match.")
+        # Revised targets override legacy innings values and original targets.
+        if match.get("revised_target_runs") is not None:
+            return int(match["revised_target_runs"])
+        if supplied_target is not None:
+            return supplied_target
+        if match.get("target_runs") is not None:
+            return int(match["target_runs"])
+        first = self.repo.connection.execute(
+            """
+            SELECT runs
+            FROM innings
+            WHERE match_id = ? AND innings_number = 1
+            """,
+            (match_id,),
+        ).fetchone()
+        # An ordinary target is one run more than the first-innings score.
+        return int(first["runs"]) + 1 if first and first["runs"] is not None else None
+
     def _match_teams(self, match_id: int) -> tuple[int, int]:
         """Return the two teams participating in a match.
 
@@ -511,12 +543,23 @@ class CricketService:
             margin_type = result_type
         elif margin is not None or margin_type is not None:
             raise ValidationError("Only run or wicket results have a margin.")
-        if result_type in {"Tie", "No Result", "Abandoned"} and winning_team not in (None, ""):
+        if result_type in {"No Result", "Abandoned"} and winning_team not in (None, ""):
             raise ValidationError(f"A {result_type.lower()} cannot have a winner.")
         result_method = optional_text(values.get("result_method"))
         override_reason = optional_text(values.get("result_override_reason"))
         if result_method:
             result_method = valid_choice(result_method, RESULT_METHODS, "Result method")
+        if (
+            result_type == "Tie"
+            and winning_team not in (None, "")
+            and not (
+                result_source == "Manual"
+                and result_method in {"Super Five", "Super Over", "Other"}
+            )
+        ):
+            raise ValidationError(
+                "A tied match can only have a manual tie-break winner and method."
+            )
         if explicit_result_source == "Manual" and not override_reason:
             raise ValidationError("A manual result override requires an override reason.")
         if result_source == "Manual" and not override_reason:
@@ -545,8 +588,16 @@ class CricketService:
         revised_balls = optional_non_negative(
             values.get("revised_balls"), "Revised allocation"
         )
+        target_runs = optional_non_negative(
+            values.get("target_runs"), "Original target"
+        )
+        revised_target_runs = optional_non_negative(
+            values.get("revised_target_runs"), "Revised target"
+        )
         if scheduled_balls == 0 or revised_balls == 0:
             raise ValidationError("Match innings allocations must be greater than zero.")
+        if target_runs == 0 or revised_target_runs == 0:
+            raise ValidationError("Match targets must be greater than zero.")
         if scheduled_balls is not None and scheduled_balls > format_balls:
             raise ValidationError(
                 "Scheduled allocation cannot exceed the match-format innings limit."
@@ -554,6 +605,13 @@ class CricketService:
         if revised_balls is not None and revised_balls > (scheduled_balls or format_balls):
             raise ValidationError(
                 "Revised allocation cannot exceed the scheduled innings allocation."
+            )
+        if (
+            revised_target_runs is not None
+            and not bool(conditions["revised_target_supported"])
+        ):
+            raise ValidationError(
+                "The selected match format does not support revised targets."
             )
         data = {
             "competition_id": competition_id,
@@ -577,6 +635,8 @@ class CricketService:
             "result_override_reason": override_reason,
             "scheduled_balls": scheduled_balls,
             "revised_balls": revised_balls,
+            "target_runs": target_runs,
+            "revised_target_runs": revised_target_runs,
         }
         saved_id = self._save(self.repo.matches, entity_id, data)
         # Rebuild ordinary result fields after a status or participant change.
@@ -722,7 +782,8 @@ class CricketService:
         if innings_status == "target_reached":
             if innings_number != 2:
                 raise ValidationError("Only the chasing innings can reach a target.")
-            target = optional_non_negative(values.get("target"), "Target")
+            supplied_target = optional_non_negative(values.get("target"), "Target")
+            target = self.resolve_chasing_target(match_id, supplied_target)
             if target in (None, 0):
                 raise ValidationError("A target-reached innings requires a target.")
             runs = optional_non_negative(values.get("runs"), "Runs")
@@ -786,7 +847,11 @@ class CricketService:
             and [row["innings_number"] for row in innings] == [1, 2]
             and all(bool(row["completed"]) for row in innings)
         )
-        if both_completed or match.get("result_source") == "Manual":
+        if (
+            both_completed
+            or match.get("result_source") == "Manual"
+            or match["match_status"] in {"No Result", "Abandoned"}
+        ):
             return False
         # An explicit uncomplete action takes precedence over score-based conclusion inference.
         empty_result = {
@@ -794,7 +859,11 @@ class CricketService:
             "result_type": None,
             "result_margin_value": None,
             "result_margin_type": None,
-            "result_method": None,
+            "result_method": (
+                match.get("result_method")
+                if match.get("revised_target_runs") is not None
+                else None
+            ),
             "result_source": None,
             "result_override_reason": None,
         }
@@ -829,7 +898,7 @@ class CricketService:
         return True
 
     def derive_match_result(self, match_id: int) -> dict[str, Any] | None:
-        """Derive an ordinary result from a completed match's innings.
+        """Derive a limited-overs result from match status and innings.
 
         :param match_id: Match identifier.
         :return: Generated result fields, or ``None`` when data is insufficient.
@@ -838,72 +907,16 @@ class CricketService:
         match = self.repo.matches.get(match_id)
         if not match:
             raise ValidationError("Select a valid match.")
-        # Only a formally completed match can acquire an ordinary stored result.
-        if match["match_status"] != "Completed":
-            return None
         innings = self.repo.list_innings(match_id)
-        if len(innings) != 2 or [row["innings_number"] for row in innings] != [1, 2]:
-            return None
-        first, second = innings
-        participants = {match["home_team_id"], match["away_team_id"]}
-        # Both innings must be complete enough to identify the participants and scores.
-        if (
-            {first["batting_team_id"], second["batting_team_id"]} != participants
-            or not bool(first["completed"])
-            or first["runs"] is None
-            or second["runs"] is None
-            or second["wickets"] is None
-            or second["balls"] is None
-        ):
-            return None
         ruleset = self._ruleset_for_match(match_id)
-        target = int(second["target"] or (int(first["runs"]) + 1))
-        target_reached = int(second["runs"]) >= target
-        second_concluded = (
-            target_reached
-            or bool(second["completed"])
-            or int(second["balls"]) >= int(ruleset["balls_per_innings"])
-            or int(second["wickets"]) >= int(ruleset["wickets_per_innings"])
+        # The generic entry point delegates all supported one-innings formats.
+        calculated = calculate_limited_overs_result(
+            match=match,
+            innings=innings,
+            wickets_per_innings=int(ruleset["wickets_per_innings"]),
+            effective_balls=self.effective_innings_balls(match_id),
         )
-        if not second_concluded:
-            return None
-        # A successful chase is decided against the target, including a stored revised target.
-        if target_reached:
-            margin = int(ruleset["wickets_per_innings"]) - int(second["wickets"])
-            if margin <= 0:
-                return None
-            return {
-                "winning_team_id": second["batting_team_id"],
-                "result_type": "Wickets",
-                "result_margin_value": margin,
-                "result_margin_type": "Wickets",
-                "result_method": "Standard",
-                "result_source": "Calculated",
-                "result_override_reason": None,
-            }
-        # With an ordinary target, equal completed scores constitute a tie.
-        if int(second["runs"]) == int(first["runs"]):
-            return {
-                "winning_team_id": None,
-                "result_type": "Tie",
-                "result_margin_value": None,
-                "result_margin_type": None,
-                "result_method": "Standard",
-                "result_source": "Calculated",
-                "result_override_reason": None,
-            }
-        margin = int(first["runs"]) - int(second["runs"])
-        if margin <= 0:
-            return None
-        return {
-            "winning_team_id": first["batting_team_id"],
-            "result_type": "Runs",
-            "result_margin_value": margin,
-            "result_margin_type": "Runs",
-            "result_method": "Standard",
-            "result_source": "Calculated",
-            "result_override_reason": None,
-        }
+        return calculated.as_match_fields() if calculated else None
 
     def recalculate_match_result(self, match_id: int) -> dict[str, Any] | None:
         """Refresh a match's stored generated result without replacing an override.
@@ -923,7 +936,11 @@ class CricketService:
             "result_type": None,
             "result_margin_value": None,
             "result_margin_type": None,
-            "result_method": None,
+            "result_method": (
+                match.get("result_method")
+                if match.get("revised_target_runs") is not None
+                else None
+            ),
             "result_source": None,
             "result_override_reason": None,
         }
@@ -1016,6 +1033,15 @@ class CricketService:
                 description = f"{description} using the {method} method"
             return description
         if result_type == "Tie":
+            winner = match.get("winning_team_name")
+            method = match.get("result_method")
+            if winner and method and method != "Standard":
+                # A manual tie-break can name an official winner without scorecard data.
+                return f"Match tied; {winner} won the {method}"
             return "Match tied"
+        if result_type == "No Result":
+            return "No result"
+        if result_type == "Abandoned":
+            return "Match abandoned"
         # Exceptional non-numeric result types are already suitable display labels.
         return str(result_type)

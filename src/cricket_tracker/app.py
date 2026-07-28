@@ -609,6 +609,37 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
             disabled=not use_revised_allocation,
             key=f"match_revised_allocation_{selected_id}",
         )
+        # Targets are authoritative inputs; the application never calculates DLS.
+        target_columns = st.columns(2)
+        original_target = target_columns[0].number_input(
+            "Original target (0 to derive from first innings)",
+            min_value=0,
+            value=int(selected.get("target_runs") or 0) if selected else 0,
+            key=f"match_original_target_{selected_id}",
+        )
+        use_revised_target = target_columns[1].checkbox(
+            "Use revised target",
+            value=bool(selected and selected.get("revised_target_runs")),
+            key=f"match_use_revised_target_{selected_id}",
+        )
+        revised_target = target_columns[1].number_input(
+            "Revised target",
+            min_value=1,
+            value=int(selected.get("revised_target_runs") or 1)
+            if selected else 1,
+            disabled=not use_revised_target,
+            key=f"match_revised_target_{selected_id}",
+        )
+        calculation_method = st.selectbox(
+            "Calculation method",
+            RESULT_METHODS,
+            index=_selected_index(
+                list(RESULT_METHODS),
+                selected.get("result_method") if selected else "Standard",
+            ),
+            disabled=not use_revised_target,
+            key=f"match_calculation_method_{selected_id}",
+        )
         participant_options = {
             "Not recorded": None,
             home: team_options[home],
@@ -687,7 +718,7 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
             winner = selected_winner
             result = selected.get("result_type") or "Not recorded" if selected else "Not recorded"
             margin = int(selected.get("result_margin_value") or 0) if selected else 0
-            method = selected.get("result_method") or "Not recorded" if selected else "Not recorded"
+            method = calculation_method
             override_reason = ""
             result_revision = (
                 f"{selected_id}_{selected.get('winning_team_id')}_"
@@ -747,6 +778,10 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
                     if use_revised_allocation
                     else None
                 ),
+                target_runs=original_target or None,
+                revised_target_runs=(
+                    revised_target if use_revised_target else None
+                ),
                 toss_winner_team_id=participant_options[toss_winner],
                 toss_decision=None if toss_decision == "Not recorded" else toss_decision,
                 winning_team_id=participant_options[winner] if override_result else None,
@@ -757,7 +792,7 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
                 result_margin_type=(
                     result if override_result and result in {"Runs", "Wickets"} else None
                 ),
-                result_method=method if override_result else None,
+                result_method=method,
                 result_source="Manual" if override_result else None,
                 result_override_reason=override_reason if override_result else None,
             ),

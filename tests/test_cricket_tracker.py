@@ -79,6 +79,7 @@ def test_initial_schema_is_cricket_native(connection: sqlite3.Connection) -> Non
     assert "home_score" not in columns
     assert {"match_status", "winning_team_id", "result_margin_type"} <= columns
     assert {"scheduled_balls", "revised_balls"} <= columns
+    assert {"target_runs", "revised_target_runs"} <= columns
     assert "notes" not in columns
     team_columns = {
         row["name"] for row in connection.execute("PRAGMA table_info(teams)")
@@ -409,6 +410,270 @@ def test_innings_limit_status_requires_full_effective_allocation(
             balls=99,
             innings_status="innings_limit_reached",
         )
+
+
+def test_t20_result_is_calculated_as_win_by_runs(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Calculate the representative T20 defence from completed innings.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    assign_core_match_format(service, core, "T20")
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=1,
+        batting_team_id=core["home"],
+        bowling_team_id=core["away"],
+        runs=165,
+        wickets=7,
+        balls=120,
+        innings_status="innings_limit_reached",
+    )
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=2,
+        batting_team_id=core["away"],
+        bowling_team_id=core["home"],
+        runs=151,
+        wickets=9,
+        balls=120,
+        innings_status="innings_limit_reached",
+    )
+
+    # Completing the second innings stores the structured calculated outcome.
+    result = service.repo.matches.get(core["match"])
+    assert result["winning_team_id"] == core["home"]
+    assert result["result_type"] == "Runs"
+    assert result["result_margin_value"] == 14
+    assert result["result_source"] == "Calculated"
+
+
+def test_t20_result_is_calculated_as_win_by_wickets(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Calculate the representative successful T20 chase.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    assign_core_match_format(service, core, "T20")
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=1,
+        batting_team_id=core["home"],
+        bowling_team_id=core["away"],
+        runs=165,
+        wickets=7,
+        balls=120,
+        innings_status="innings_limit_reached",
+    )
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=2,
+        batting_team_id=core["away"],
+        bowling_team_id=core["home"],
+        runs=166,
+        wickets=4,
+        balls=111,
+        innings_status="target_reached",
+    )
+
+    result = service.repo.matches.get(core["match"])
+    assert result["winning_team_id"] == core["away"]
+    assert result["result_type"] == "Wickets"
+    assert result["result_margin_value"] == 6
+
+
+def test_odi_equal_completed_scores_are_a_tie(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Calculate the representative tied ODI result.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    assign_core_match_format(service, core, "ODI")
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=1,
+        batting_team_id=core["home"],
+        bowling_team_id=core["away"],
+        runs=275,
+        wickets=8,
+        balls=300,
+        innings_status="innings_limit_reached",
+    )
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=2,
+        batting_team_id=core["away"],
+        bowling_team_id=core["home"],
+        runs=275,
+        wickets=10,
+        balls=299,
+        innings_status="all_out",
+    )
+
+    result = service.repo.matches.get(core["match"])
+    assert result["winning_team_id"] is None
+    assert result["result_type"] == "Tie"
+    assert service.result_description(result) == "Match tied"
+
+
+def test_revised_target_drives_dls_wicket_result(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Use an authoritative revised target without calculating DLS.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    assign_core_match_format(service, core, "ODI")
+    # The uninterrupted first innings is recorded before the chase is reduced.
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=1,
+        batting_team_id=core["home"],
+        bowling_team_id=core["away"],
+        runs=250,
+        wickets=8,
+        balls=300,
+        innings_status="innings_limit_reached",
+    )
+    service.save_match(
+        entity_id=core["match"],
+        competition_id=core["competition"],
+        match_date="2026-07-20",
+        venue_id=core["venue"],
+        home_team_id=core["home"],
+        away_team_id=core["away"],
+        scheduled_balls=300,
+        revised_balls=180,
+        target_runs=251,
+        revised_target_runs=180,
+        result_method="DLS",
+    )
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=2,
+        batting_team_id=core["away"],
+        bowling_team_id=core["home"],
+        runs=181,
+        wickets=5,
+        balls=170,
+        innings_status="target_reached",
+    )
+
+    result = service.repo.matches.get(core["match"])
+    assert result["winning_team_id"] == core["away"]
+    assert result["result_type"] == "Wickets"
+    assert result["result_margin_value"] == 5
+    assert result["result_method"] == "DLS"
+    assert service.result_description(
+        {**result, "winning_team_name": "Oval Invincibles Men"}
+    ) == "Oval Invincibles Men won by 5 wickets using the DLS method"
+
+
+@pytest.mark.parametrize(
+    ("match_status", "result_type", "description"),
+    [
+        ("No Result", "No Result", "No result"),
+        ("Abandoned", "Abandoned", "Match abandoned"),
+    ],
+)
+def test_terminal_match_status_calculates_non_numeric_result(
+    service: CricketService,
+    core: dict[str, int],
+    match_status: str,
+    result_type: str,
+    description: str,
+) -> None:
+    """Calculate an exceptional outcome without requiring innings summaries.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :param match_status: Terminal match status.
+    :param result_type: Expected structured result type.
+    :param description: Expected supporter-friendly description.
+    :return: None.
+    """
+    service.save_match(
+        entity_id=core["match"],
+        competition_id=core["competition"],
+        match_date="2026-07-20",
+        venue_id=core["venue"],
+        home_team_id=core["home"],
+        away_team_id=core["away"],
+        match_status=match_status,
+    )
+
+    result = service.repo.matches.get(core["match"])
+    assert result["result_type"] == result_type
+    assert result["result_source"] == "Calculated"
+    assert service.result_description(result) == description
+    # Placeholder innings must not invalidate an outcome determined by match status.
+    service.save_innings(
+        match_id=core["match"], innings_number=1, completed=False
+    )
+    assert service.repo.matches.get(core["match"])["result_type"] == result_type
+
+
+def test_manual_super_over_winner_overrides_calculated_tie(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Retain a manual tie-break winner over the underlying calculated tie.
+
+    :param service: Cricket service.
+    :param core: Core fixture identifiers.
+    :return: None.
+    """
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=1,
+        batting_team_id=core["home"],
+        bowling_team_id=core["away"],
+        runs=140,
+        wickets=7,
+        balls=100,
+        completed=True,
+    )
+    service.save_innings(
+        match_id=core["match"],
+        innings_number=2,
+        batting_team_id=core["away"],
+        bowling_team_id=core["home"],
+        runs=140,
+        wickets=8,
+        balls=100,
+        completed=True,
+    )
+    service.save_match(
+        entity_id=core["match"],
+        competition_id=core["competition"],
+        match_date="2026-07-20",
+        venue_id=core["venue"],
+        home_team_id=core["home"],
+        away_team_id=core["away"],
+        match_status="Completed",
+        winning_team_id=core["home"],
+        result_type="Tie",
+        result_method="Super Over",
+        result_source="Manual",
+        result_override_reason="Official Super Over result.",
+    )
+
+    result = service.repo.matches.get(core["match"])
+    assert result["result_source"] == "Manual"
+    assert service.derive_match_result(core["match"])["result_type"] == "Tie"
+    assert service.result_description(
+        {**result, "winning_team_name": "London Spirit Men"}
+    ) == "Match tied; London Spirit Men won the Super Over"
 
 
 @pytest.mark.parametrize(
