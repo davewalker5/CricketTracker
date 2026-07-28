@@ -9,6 +9,14 @@ from typing import Any, Callable
 import pandas as pd
 import streamlit as st
 
+from cricket_tracker.analysis import (
+    batting_order_summary,
+    competition_teams,
+    head_to_head,
+    load_analysis_matches,
+    rate_label,
+    team_summary,
+)
 from cricket_tracker.config import application_version, is_read_only_domain
 from cricket_tracker.database import apply_migrations, connect
 from cricket_tracker.exports import DATASETS, export_csv
@@ -1152,6 +1160,371 @@ def _standings(service: CricketService) -> None:
     )
 
 
+def _analysis_value(value: Any, suffix: str = "") -> str:
+    """Format an optional analysis metric consistently.
+
+    :param value: Numeric or textual metric value.
+    :param suffix: Optional display suffix.
+    :return: Display-ready value or an unavailable marker.
+    """
+    # Preserve integers while keeping calculated averages compact.
+    if value is None:
+        return "—"
+    if isinstance(value, float):
+        return f"{value:.2f}{suffix}"
+    return f"{value}{suffix}"
+
+
+def _analysis_metrics(items: list[tuple[str, Any, str]]) -> None:
+    """Render a responsive row of analysis metric cards.
+
+    :param items: Label, value, and suffix tuples.
+    :return: None.
+    """
+    # Batches of at most five cards remain readable on ordinary displays.
+    for offset in range(0, len(items), 5):
+        batch = items[offset : offset + 5]
+        columns = st.columns(len(batch))
+        for column, (label, value, suffix) in zip(columns, batch):
+            # A bordered container gives each figure the aligned card treatment.
+            card = column.container(border=True)
+            card.metric(label, _analysis_value(value, suffix))
+
+
+def _analysis_scope(
+    service: CricketService,
+) -> tuple[dict[str, Any], list[dict[str, Any]]] | None:
+    """Render cascading competition and season selectors.
+
+    :param service: Cricket service providing competition rows.
+    :return: Selected competition row and participating teams, or ``None``.
+    """
+    # Group season-specific database rows behind the human competition name.
+    competitions = service.list_competitions()
+    if not competitions:
+        st.info("Add a competition and fixtures before using analysis.")
+        return None
+    names = sorted({row["name"] for row in competitions}, key=str.casefold)
+    selected_name = st.selectbox("Competition", names, key="analysis_competition")
+    seasons = sorted(
+        {str(row["season"]) for row in competitions if row["name"] == selected_name},
+        reverse=True,
+    )
+    selected_season = st.selectbox("Season", seasons, key="analysis_season")
+    selected = next(
+        row
+        for row in competitions
+        if row["name"] == selected_name and str(row["season"]) == selected_season
+    )
+    teams = competition_teams(service.repo.connection, int(selected["id"]))
+    if not teams:
+        st.info("No teams appear in fixtures for the selected competition and season.")
+        return None
+    return selected, teams
+
+
+def _team_summary_report(
+    matches: list[dict[str, Any]], teams: list[dict[str, Any]]
+) -> None:
+    """Render the Team Summary analysis report.
+
+    :param matches: Terminal matches for the selected competition-season.
+    :param teams: Teams participating in that competition-season.
+    :return: None.
+    """
+    # Team choices are already constrained by the cascading scope selectors.
+    options = {row["name"]: int(row["id"]) for row in teams}
+    label = st.selectbox("Team", list(options), key="analysis_summary_team")
+    report = team_summary(matches, options[label])
+    metrics = report["metrics"]
+    if not metrics["matches_played"]:
+        st.info("No completed, tied, or no-result matches are available for this team.")
+        return
+    st.caption(
+        "Win percentage excludes no-results and abandoned matches. "
+        "Score and rate metrics use only innings with the required data."
+    )
+    _analysis_metrics(
+        [
+            ("Matches", metrics["matches_played"], ""),
+            ("Wins", metrics["wins"], ""),
+            ("Losses", metrics["losses"], ""),
+            ("Ties", metrics["ties"], ""),
+            ("No results", metrics["no_results"], ""),
+            ("Win percentage", metrics["win_percentage"], "%"),
+            ("Runs scored", metrics["total_runs_scored"], ""),
+            ("Runs conceded", metrics["total_runs_conceded"], ""),
+            ("Average score", metrics["average_runs_scored"], ""),
+            ("Average conceded", metrics["average_runs_conceded"], ""),
+            ("Average wickets lost", metrics["average_wickets_lost"], ""),
+            ("Average wickets taken", metrics["average_wickets_taken"], ""),
+            ("Highest score", metrics["highest_team_innings"], ""),
+            ("Lowest completed score", metrics["lowest_team_innings"], ""),
+            ("Highest opposition score", metrics["highest_opposition_innings"], ""),
+            ("Lowest opposition score", metrics["lowest_opposition_innings"], ""),
+            (
+                f"Average {rate_label(report['format_code']).lower()}",
+                metrics["average_scoring_rate"],
+                "",
+            ),
+            (
+                f"Opposition {rate_label(report['format_code']).lower()}",
+                metrics["average_opposition_scoring_rate"],
+                "",
+            ),
+        ]
+    )
+    st.subheader("Batting order record")
+    _analysis_metrics(
+        [
+            ("Wins batting first", metrics.get("won_first", 0), ""),
+            ("Losses batting first", metrics.get("lost_first", 0), ""),
+            ("Wins chasing", metrics.get("won_chasing", 0), ""),
+            ("Losses chasing", metrics.get("lost_chasing", 0), ""),
+        ]
+    )
+    st.subheader("Result margins")
+    _analysis_metrics(
+        [
+            ("Largest win by runs", report["win_margins"]["largest_runs"], ""),
+            ("Narrowest win by runs", report["win_margins"]["narrowest_runs"], ""),
+            ("Largest win by wickets", report["win_margins"]["largest_wickets"], ""),
+            (
+                "Narrowest win by wickets",
+                report["win_margins"]["narrowest_wickets"],
+                "",
+            ),
+            ("Largest defeat by runs", report["defeat_margins"]["largest_runs"], ""),
+            (
+                "Largest defeat by wickets",
+                report["defeat_margins"]["largest_wickets"],
+                "",
+            ),
+        ]
+    )
+    st.subheader("Match history")
+    history = [
+        {key: value for key, value in row.items() if not key.startswith("_")}
+        for row in report["history"]
+    ]
+    st.dataframe(pd.DataFrame(history), hide_index=True, width="stretch")
+
+
+def _batting_order_report(
+    matches: list[dict[str, Any]], teams: list[dict[str, Any]]
+) -> None:
+    """Render the Batting First vs Chasing report.
+
+    :param matches: Terminal matches for the selected competition-season.
+    :param teams: Teams participating in that competition-season.
+    :return: None.
+    """
+    # The blank option switches cleanly between competition and team perspectives.
+    options = {"All teams": None, **{row["name"]: int(row["id"]) for row in teams}}
+    label = st.selectbox("Team (optional)", list(options), key="analysis_order_team")
+    report = batting_order_summary(matches, options[label])
+    metrics = report["competition"]
+    if not metrics["completed_matches_analysed"]:
+        st.info("No matches have two suitable, ordered innings for this report.")
+        return
+    st.caption(
+        "Batting order is determined only from innings numbers. "
+        "Ambiguous or incomplete innings pairs are excluded."
+    )
+    _analysis_metrics(
+        [
+            ("Matches analysed", metrics["completed_matches_analysed"], ""),
+            ("Batting-first wins", metrics["batting_first_wins"], ""),
+            ("Chasing wins", metrics["chasing_wins"], ""),
+            ("Ties", metrics["ties"], ""),
+            ("No results", metrics["no_results"], ""),
+            (
+                "Batting-first win percentage",
+                metrics["batting_first_win_percentage"],
+                "%",
+            ),
+            ("Chasing win percentage", metrics["chasing_win_percentage"], "%"),
+            ("Average first innings", metrics["average_first_innings_score"], ""),
+            ("Median first innings", metrics["median_first_innings_score"], ""),
+            ("Highest first innings", metrics["highest_first_innings_score"], ""),
+            (
+                "Lowest completed first innings",
+                metrics["lowest_completed_first_innings_score"],
+                "",
+            ),
+            ("Highest successful chase", metrics["highest_successful_chase"], ""),
+            (
+                "Lowest defended total",
+                metrics["lowest_successfully_defended_total"],
+                "",
+            ),
+            (
+                f"Average first-innings {rate_label(report['format_code']).lower()}",
+                metrics["average_first_innings_rate"],
+                "",
+            ),
+            (
+                f"Successful-chase {rate_label(report['format_code']).lower()}",
+                metrics["average_successful_chase_rate"],
+                "",
+            ),
+            (
+                f"Losing-chase {rate_label(report['format_code']).lower()}",
+                metrics["average_losing_chase_rate"],
+                "",
+            ),
+        ]
+    )
+    if report["team"]:
+        for role, title in (("batting_first", "Batting first"), ("chasing", "Chasing")):
+            role_metrics = report["team"][role]
+            st.subheader(title)
+            _analysis_metrics(
+                [
+                    ("Matches", role_metrics["matches"], ""),
+                    ("Wins", role_metrics["wins"], ""),
+                    ("Losses", role_metrics["losses"], ""),
+                    ("Ties", role_metrics["ties"], ""),
+                    ("Win percentage", role_metrics["win_percentage"], "%"),
+                    ("Average score", role_metrics["average_score"], ""),
+                    ("Highest score", role_metrics["highest_score"], ""),
+                    (
+                        "Lowest completed score",
+                        role_metrics["lowest_completed_score"],
+                        "",
+                    ),
+                    ("Lowest winning score", role_metrics["lowest_successful_score"], ""),
+                    ("Largest win margin", role_metrics["largest_margin"], ""),
+                    ("Narrowest win margin", role_metrics["narrowest_margin"], ""),
+                ]
+            )
+    st.subheader("Match detail")
+    st.dataframe(pd.DataFrame(report["detail"]), hide_index=True, width="stretch")
+
+
+def _head_to_head_report(
+    matches: list[dict[str, Any]], teams: list[dict[str, Any]]
+) -> None:
+    """Render the Head-to-Head report.
+
+    :param matches: Terminal matches for the selected competition-season.
+    :param teams: Teams participating in that competition-season.
+    :return: None.
+    """
+    # Filtering the second selector prevents selecting the same team twice.
+    options = {row["name"]: int(row["id"]) for row in teams}
+    first_label = st.selectbox("First team", list(options), key="analysis_h2h_first")
+    second_labels = [label for label in options if label != first_label]
+    if not second_labels:
+        st.info("At least two teams are required for head-to-head analysis.")
+        return
+    second_label = st.selectbox(
+        "Second team", second_labels, key="analysis_h2h_second"
+    )
+    report = head_to_head(matches, options[first_label], options[second_label])
+    if not report["matches_played"]:
+        st.info("These teams have no recorded meetings in the selected season.")
+        return
+    st.caption(
+        "Win percentages exclude no-results and abandoned matches. "
+        "Run and wicket margins are reported separately."
+    )
+    _analysis_metrics(
+        [
+            ("Matches", report["matches_played"], ""),
+            (f"{first_label} wins", report["first_team"]["metrics"]["wins"], ""),
+            (f"{second_label} wins", report["second_team"]["metrics"]["wins"], ""),
+            ("Ties", report["ties"], ""),
+            ("No results", report["no_results"], ""),
+            (
+                f"{first_label} win percentage",
+                report["first_team"]["metrics"]["win_percentage"],
+                "%",
+            ),
+            (
+                f"{second_label} win percentage",
+                report["second_team"]["metrics"]["win_percentage"],
+                "%",
+            ),
+        ]
+    )
+    for label, team_report in (
+        (first_label, report["first_team"]),
+        (second_label, report["second_team"]),
+    ):
+        metrics = team_report["metrics"]
+        st.subheader(label)
+        _analysis_metrics(
+            [
+                ("Runs", metrics["total_runs_scored"], ""),
+                ("Average score", metrics["average_runs_scored"], ""),
+                ("Average wickets lost", metrics["average_wickets_lost"], ""),
+                (
+                    f"Average {rate_label(report['format_code']).lower()}",
+                    metrics["average_scoring_rate"],
+                    "",
+                ),
+                ("Highest innings", metrics["highest_team_innings"], ""),
+                ("Lowest completed innings", metrics["lowest_team_innings"], ""),
+                ("Wins batting first", metrics.get("won_first", 0), ""),
+                ("Losses batting first", metrics.get("lost_first", 0), ""),
+                ("Wins chasing", metrics.get("won_chasing", 0), ""),
+                ("Losses chasing", metrics.get("lost_chasing", 0), ""),
+            ]
+        )
+    st.subheader("Notable matches")
+    notable = report["notable"]
+    _analysis_metrics(
+        [
+            ("Largest win by runs", notable["largest_runs"], ""),
+            ("Narrowest result by runs", notable["narrowest_runs"], ""),
+            ("Largest win by wickets", notable["largest_wickets"], ""),
+            ("Narrowest result by wickets", notable["narrowest_wickets"], ""),
+            ("Highest successful chase", notable["highest_successful_chase"], ""),
+            (
+                "Lowest defended total",
+                notable["lowest_successfully_defended_total"],
+                "",
+            ),
+            ("Highest aggregate", notable["highest_aggregate"], ""),
+            ("Lowest completed aggregate", notable["lowest_aggregate"], ""),
+        ]
+    )
+    st.subheader("Match history")
+    st.dataframe(pd.DataFrame(report["history"]), hide_index=True, width="stretch")
+
+
+def _analysis(service: CricketService) -> None:
+    """Render all limited-overs analysis reports.
+
+    :param service: Cricket service sharing the current database connection.
+    :return: None.
+    """
+    st.header("Analysis")
+    # Shared cascading filters keep every report on one format and season.
+    scope = _analysis_scope(service)
+    if scope is None:
+        return
+    competition, teams = scope
+    matches = load_analysis_matches(service.repo.connection, int(competition["id"]))
+    report_name = st.radio(
+        "Report",
+        ["Team Summary", "Batting First vs Chasing", "Head-to-Head"],
+        horizontal=True,
+        key="analysis_report",
+    )
+    st.caption(
+        f"{competition['name']} · {competition['season']} · "
+        f"{competition['match_format_name']}"
+    )
+    if report_name == "Team Summary":
+        _team_summary_report(matches, teams)
+    elif report_name == "Batting First vs Chasing":
+        _batting_order_report(matches, teams)
+    else:
+        _head_to_head_report(matches, teams)
+
+
 def _countries(service: CricketService, read_only: bool = False) -> None:
     """Render country maintenance.
 
@@ -1794,6 +2167,7 @@ def _main_navigation() -> str:
     :return: Label of the selected application page.
     """
     page_labels = [
+        "Analysis",
         "League Table",
         "Matches",
         "Competitions",
@@ -1889,6 +2263,7 @@ def run() -> None:
     try:
         pages = {
             "League Table": _standings,
+            "Analysis": _analysis,
             "Matches": _matches,
             "Competitions": _competitions,
             "Teams": _teams,
