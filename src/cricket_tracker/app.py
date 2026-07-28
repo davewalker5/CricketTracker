@@ -614,16 +614,17 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
             ),
             key=f"match_status_{selected_id}",
         )
+        allocation_option_columns = st.columns(2)
+        use_revised_allocation = allocation_option_columns[1].checkbox(
+            "Use reduced allocation",
+            value=bool(selected and selected.get("revised_balls")),
+            key=f"match_use_revised_allocation_{selected_id}",
+        )
         allocation_columns = st.columns(2)
         scheduled_allocation = allocation_columns[0].number_input(
             f"Scheduled {allocation_label} per innings",
             value=scheduled_value,
             key=f"match_scheduled_allocation_{selected_id}",
-        )
-        use_revised_allocation = allocation_columns[1].checkbox(
-            "Use reduced allocation",
-            value=bool(selected and selected.get("revised_balls")),
-            key=f"match_use_revised_allocation_{selected_id}",
         )
         revised_allocation = allocation_columns[1].number_input(
             f"Revised {allocation_label} per innings",
@@ -632,16 +633,17 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
             key=f"match_revised_allocation_{selected_id}",
         )
         # Targets are authoritative inputs; the application never calculates DLS.
+        target_option_columns = st.columns(2)
+        use_revised_target = target_option_columns[1].checkbox(
+            "Use revised target",
+            value=bool(selected and selected.get("revised_target_runs")),
+            key=f"match_use_revised_target_{selected_id}",
+        )
         target_columns = st.columns(2)
         original_target = target_columns[0].number_input(
             "Original target (0 to derive from first innings)",
             value=int(selected.get("target_runs") or 0) if selected else 0,
             key=f"match_original_target_{selected_id}",
-        )
-        use_revised_target = target_columns[1].checkbox(
-            "Use revised target",
-            value=bool(selected and selected.get("revised_target_runs")),
-            key=f"match_use_revised_target_{selected_id}",
         )
         revised_target = target_columns[1].number_input(
             "Revised target",
