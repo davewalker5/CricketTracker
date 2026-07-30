@@ -1,3 +1,0 @@
-competition,season,match_date,home_team,away_team,innings_number,batting_team,bowling_team,runs,wickets,balls,extras,target,completed,innings_status
-Example T20 League,2026,2026-06-01,Example North,Example South,1,Example North,Example South,165,7,120,,,1,innings_limit_reached
-Example T20 League,2026,2026-06-01,Example North,Example South,2,Example South,Example North,151,9,120,,,1,innings_limit_reached

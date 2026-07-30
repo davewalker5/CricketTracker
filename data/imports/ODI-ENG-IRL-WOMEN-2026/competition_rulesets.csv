@@ -1,2 +1,2 @@
 name,match_format,points_for_win,points_for_tie,points_for_no_result,points_for_abandonment,points_for_loss,has_standings,uses_net_run_rate,include_knockout_matches_in_table,table_sort_order,balls_per_innings,wickets_per_innings,balls_per_rate_unit,combine_gender_tables,ties_may_stand,tie_break_winner_allowed,revised_targets_allowed
-Standard T20 Example,Twenty20,2,1,1,1,0,1,1,0,"points,net_run_rate,wins",120,10,6,0,1,1,1
+One Day International,One Day,2,1,1,1,0,1,1,0,"points,net_run_rate,wins",300,10,6,0,1,1,1
