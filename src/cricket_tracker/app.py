@@ -1169,7 +1169,7 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
             index=_selected_index(
                 list(INNINGS_STATUSES),
                 selected_innings.get("innings_status")
-                if selected_innings else "not_started",
+                if selected_innings else "Not Started",
             ),
             key=f"innings_status_{match_id}_{innings_form_identity}",
         )
