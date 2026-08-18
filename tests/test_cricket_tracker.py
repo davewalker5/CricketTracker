@@ -1399,6 +1399,65 @@ def test_reset_venue_editor_clears_selection_and_form(
     }
 
 
+def test_reset_country_editor_clears_selection_and_form(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reset the country editor completely after a successful save."""
+    session_state = {
+        "country_editor_generation": 1,
+        "country_name_None": "New country",
+        "country_code_5": "NC",
+        "unrelated_widget": "preserved",
+    }
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+
+    tracker_app._reset_country_editor(5)
+
+    assert session_state == {
+        "country_editor_generation": 2,
+        "unrelated_widget": "preserved",
+    }
+
+
+def test_reset_ruleset_editor_clears_selection_and_form(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reset the ruleset editor completely after a successful save."""
+    form_keys = {
+        "ruleset_name_None",
+        "ruleset_match_format_3",
+        "ruleset_win_3",
+        "ruleset_tie_3",
+        "ruleset_nr_3",
+        "ruleset_abandoned_3",
+        "ruleset_loss_3",
+        "ruleset_has_standings_3",
+        "ruleset_nrr_3",
+        "ruleset_knockouts_3",
+        "ruleset_combined_3",
+        "ruleset_ties_stand_3",
+        "ruleset_tie_break_3",
+        "ruleset_revised_targets_3",
+        "ruleset_balls_3",
+        "ruleset_wickets_3",
+        "ruleset_rate_unit_3",
+        "ruleset_sort_3",
+    }
+    session_state = {
+        "ruleset_editor_generation": 8,
+        **{key: "form value" for key in form_keys},
+        "unrelated_widget": "preserved",
+    }
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+
+    tracker_app._reset_ruleset_editor(3)
+
+    assert session_state == {
+        "ruleset_editor_generation": 9,
+        "unrelated_widget": "preserved",
+    }
+
+
 def test_ui_save_is_blocked_in_read_only_mode(
     service: CricketService, monkeypatch: pytest.MonkeyPatch
 ) -> None:
