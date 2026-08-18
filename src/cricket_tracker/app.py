@@ -291,6 +291,40 @@ def _reset_country_editor(_saved_id: int | None = None) -> None:
             del st.session_state[key]
 
 
+def _reset_ruleset_editor(_saved_id: int | None = None) -> None:
+    """Clear ruleset table selection and all add/edit form values.
+
+    :param _saved_id: Identifier returned by the save action; intentionally unused.
+    :return: None.
+    """
+    st.session_state["ruleset_editor_generation"] = (
+        st.session_state.get("ruleset_editor_generation", 0) + 1
+    )
+    form_prefixes = (
+        "ruleset_name_",
+        "ruleset_match_format_",
+        "ruleset_win_",
+        "ruleset_tie_",
+        "ruleset_nr_",
+        "ruleset_abandoned_",
+        "ruleset_loss_",
+        "ruleset_has_standings_",
+        "ruleset_nrr_",
+        "ruleset_knockouts_",
+        "ruleset_combined_",
+        "ruleset_ties_stand_",
+        "ruleset_tie_break_",
+        "ruleset_revised_targets_",
+        "ruleset_balls_",
+        "ruleset_wickets_",
+        "ruleset_rate_unit_",
+        "ruleset_sort_",
+    )
+    for key in list(st.session_state):
+        if key.startswith(form_prefixes):
+            del st.session_state[key]
+
+
 def _selectable_table(
     rows: list[dict[str, Any]],
     columns: list[tuple[str, str]],
@@ -2206,6 +2240,7 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
             service.repo.connection,
             read_only,
             error_key=ruleset_error_key,
+            on_success=_reset_ruleset_editor,
         )
     elif delete_clicked and selected_id is not None:
         _delete(
@@ -2230,6 +2265,48 @@ def _reset_import_upload() -> None:
     )
 
 
+def _show_pending_import_result() -> None:
+    """Display and consume messages retained from the previous import attempt.
+
+    :return: None.
+    """
+    result = st.session_state.pop("_pending_import_result", None)
+    if not result:
+        return
+    summary = result.get("summary")
+    if summary:
+        st.success(str(summary))
+    for error in result.get("errors", []):
+        st.error(str(error))
+
+
+def _attempt_csv_import(
+    service: CricketService, dataset: str, content: bytes
+) -> None:
+    """Run an import, retain its messages, and replace the used uploader.
+
+    :param service: Transaction-scoped service.
+    :param dataset: Selected import dataset.
+    :param content: Uploaded CSV bytes.
+    :return: None.
+    """
+    try:
+        result = CricketImporter(service.repo.connection).import_csv(dataset, content)
+        service.repo.connection.commit()
+        st.session_state["_pending_import_result"] = {
+            "summary": f"Imported {result.imported}; skipped {result.skipped}.",
+            "errors": list(result.errors),
+        }
+    except (ValidationError, ValueError, UnicodeError, sqlite3.Error) as error:
+        service.repo.connection.rollback()
+        st.session_state["_pending_import_result"] = {
+            "summary": None,
+            "errors": [str(error)],
+        }
+    _reset_import_upload()
+    st.rerun()
+
+
 def _reset_export_file_stem() -> None:
     """Reset the export file stem to the newly selected dataset.
 
@@ -2246,6 +2323,7 @@ def _csv_import(service: CricketService, read_only: bool = False) -> None:
     :return: None.
     """
     st.header("CSV Import")
+    _show_pending_import_result()
     dataset = st.selectbox(
         "Dataset",
         DATASETS,
@@ -2260,11 +2338,7 @@ def _csv_import(service: CricketService, read_only: bool = False) -> None:
         disabled=read_only,
     )
     if upload and st.button("Import CSV", disabled=read_only):
-        result = CricketImporter(service.repo.connection).import_csv(dataset, upload.getvalue())
-        service.repo.connection.commit()
-        st.success(f"Imported {result.imported}; skipped {result.skipped}.")
-        for error in result.errors:
-            st.error(error)
+        _attempt_csv_import(service, dataset, upload.getvalue())
 
 
 def _csv_export(service: CricketService) -> None:
