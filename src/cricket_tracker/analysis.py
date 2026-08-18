@@ -9,12 +9,7 @@ from typing import Any
 
 
 TERMINAL_STATUSES = {"Completed", "No Result", "Abandoned"}
-FINISHED_INNINGS_STATUSES = {
-    "completed",
-    "all_out",
-    "target_reached",
-    "innings_limit_reached",
-}
+FINISHED_INNINGS_STATUSES = {"completed"}
 
 
 def scoring_rate(runs: int | None, balls: int | None, format_code: str) -> float | None:

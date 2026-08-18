@@ -32,7 +32,7 @@ def _complete_run_win(service: CricketService, core: dict[str, int]) -> None:
         runs=150,
         wickets=6,
         balls=100,
-        innings_status="innings_limit_reached",
+        innings_status="completed",
     )
     service.save_innings(
         match_id=core["match"],
@@ -42,7 +42,7 @@ def _complete_run_win(service: CricketService, core: dict[str, int]) -> None:
         runs=137,
         wickets=8,
         balls=100,
-        innings_status="innings_limit_reached",
+        innings_status="completed",
     )
     service.save_match(
         entity_id=core["match"],
