@@ -1331,6 +1331,30 @@ def test_ui_save_commits_before_requesting_rerun(
     )
 
 
+def test_reset_competition_editor_clears_selection_and_form(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reset the competition editor completely after a successful save."""
+    session_state = {
+        "competition_editor_generation": 2,
+        "competition_name_None": "New competition",
+        "competition_year_7": "2026",
+        "competition_ruleset_7": "Standard T20",
+        "competition_gender_7": "Women",
+        "competition_format_7": "T20",
+        "competition_country_7": "England",
+        "unrelated_widget": "preserved",
+    }
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+
+    tracker_app._reset_competition_editor(7)
+
+    assert session_state == {
+        "competition_editor_generation": 3,
+        "unrelated_widget": "preserved",
+    }
+
+
 def test_ui_save_is_blocked_in_read_only_mode(
     service: CricketService, monkeypatch: pytest.MonkeyPatch
 ) -> None:
