@@ -1399,6 +1399,26 @@ def test_reset_venue_editor_clears_selection_and_form(
     }
 
 
+def test_reset_country_editor_clears_selection_and_form(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reset the country editor completely after a successful save."""
+    session_state = {
+        "country_editor_generation": 1,
+        "country_name_None": "New country",
+        "country_code_5": "NC",
+        "unrelated_widget": "preserved",
+    }
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+
+    tracker_app._reset_country_editor(5)
+
+    assert session_state == {
+        "country_editor_generation": 2,
+        "unrelated_widget": "preserved",
+    }
+
+
 def test_ui_save_is_blocked_in_read_only_mode(
     service: CricketService, monkeypatch: pytest.MonkeyPatch
 ) -> None:
