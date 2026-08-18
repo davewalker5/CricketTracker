@@ -39,7 +39,9 @@ EXPORT_QUERIES = {
                r.table_sort_order, r.balls_per_innings, r.wickets_per_innings,
                r.balls_per_rate_unit, r.combine_gender_tables,
                r.ties_may_stand, r.tie_break_winner_allowed,
-               r.revised_targets_allowed
+               r.revised_targets_allowed, r.points_for_draw,
+               r.scheduled_days, r.follow_on_allowed, r.follow_on_lead,
+               r.declarations_allowed, r.forfeitures_allowed
         FROM competition_rulesets r
         JOIN match_formats f ON f.id = r.match_format_id
         ORDER BY r.name COLLATE NOCASE
@@ -60,7 +62,8 @@ EXPORT_QUERIES = {
                m.result_margin_value, m.result_margin_type, m.result_method,
                m.result_source, m.result_override_reason,
                m.scheduled_balls, m.revised_balls,
-               m.target_runs, m.revised_target_runs
+               m.target_runs, m.revised_target_runs, m.scheduled_days,
+               m.follow_on_enforced, m.effective_follow_on_lead
         FROM matches m
         JOIN competitions c ON c.id = m.competition_id
         LEFT JOIN venues v ON v.id = m.venue_id

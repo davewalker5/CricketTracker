@@ -129,6 +129,8 @@ class CricketRepository:
                 "balls_per_rate_unit", "combine_gender_tables", "match_format_id",
                 "points_for_abandonment", "has_standings", "ties_may_stand",
                 "tie_break_winner_allowed", "revised_targets_allowed",
+                "points_for_draw", "scheduled_days", "follow_on_allowed",
+                "follow_on_lead", "declarations_allowed", "forfeitures_allowed",
             ),
         )
         self.competitions = Repository(
@@ -147,6 +149,7 @@ class CricketRepository:
                 "result_source", "result_override_reason",
                 "scheduled_balls", "revised_balls",
                 "target_runs", "revised_target_runs",
+                "scheduled_days", "follow_on_enforced", "effective_follow_on_lead",
             ),
         )
         self.innings = Repository(
@@ -201,7 +204,7 @@ class CricketRepository:
             SELECT r.*, f.code AS match_format_code, f.name AS match_format_name
             FROM competition_rulesets r
             JOIN match_formats f ON f.id = r.match_format_id
-            ORDER BY r.name COLLATE NOCASE, r.id
+            ORDER BY f.id, r.name COLLATE NOCASE, r.id
             """
         ).fetchall()
         return [dict(row) for row in rows]
@@ -216,7 +219,9 @@ class CricketRepository:
             SELECT c.*, x.name AS country_name, r.name AS ruleset_name,
                    f.code AS match_format_code, f.name AS match_format_name,
                    f.innings_per_team, f.limit_unit, f.innings_limit,
-                   f.balls_per_over, r.has_standings, r.uses_net_run_rate
+                   f.balls_per_over, r.has_standings, r.uses_net_run_rate,
+                   r.scheduled_days, r.follow_on_allowed, r.follow_on_lead,
+                   r.declarations_allowed, r.forfeitures_allowed
             FROM competitions c
             LEFT JOIN countries x ON x.id = c.country_id
             JOIN competition_rulesets r ON r.id = c.ruleset_id
@@ -240,7 +245,11 @@ class CricketRepository:
                    v.name AS venue_name, h.name AS home_team_name,
                    a.name AS away_team_name, w.name AS winning_team_name,
                    f.code AS match_format_code, f.name AS match_format_name,
-                   f.limit_unit, f.innings_limit, f.balls_per_over
+                   f.limit_unit, f.innings_limit, f.balls_per_over,
+                   f.innings_per_team, f.draw_allowed,
+                   r.scheduled_days AS ruleset_scheduled_days,
+                   r.follow_on_allowed, r.follow_on_lead,
+                   r.declarations_allowed, r.forfeitures_allowed
             FROM matches m
             JOIN competitions c ON c.id = m.competition_id
             JOIN competition_rulesets r ON r.id = c.ruleset_id
@@ -267,7 +276,8 @@ class CricketRepository:
         rows = self.connection.execute(
             f"""
             SELECT i.*, b.name AS batting_team_name, o.name AS bowling_team_name,
-                   f.limit_unit, f.balls_per_over
+                   f.limit_unit, f.balls_per_over,
+                   f.code AS match_format_code, f.innings_per_team
             FROM innings i
             JOIN matches m ON m.id = i.match_id
             JOIN competitions c ON c.id = m.competition_id

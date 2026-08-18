@@ -720,11 +720,12 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
     form_identity = selected_id if selected_id is not None else "new"
     match_error_key = f"match_save_error_{form_identity}"
     _show_persistent_error(match_error_key)
-    limit_unit = str(competition["limit_unit"])
+    is_test = competition["match_format_code"] == "TEST"
+    limit_unit = competition["limit_unit"]
     balls_per_over = competition.get("balls_per_over")
     unit_size = int(balls_per_over or 1)
     allocation_label = "overs" if limit_unit == "overs" else "balls"
-    default_allocation = int(competition["innings_limit"])
+    default_allocation = int(competition["innings_limit"] or 0)
     scheduled_value = (
         int(selected["scheduled_balls"]) // unit_size
         if selected and selected.get("scheduled_balls")
@@ -735,10 +736,11 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
         if selected and selected.get("revised_balls")
         else scheduled_value
     )
-    st.caption(
-        f"Match format: {competition['match_format_name']} — "
-        f"{default_allocation} {allocation_label} per innings."
+    format_detail = (
+        f"{int((selected or {}).get('scheduled_days') or competition.get('scheduled_days') or 5)} days; unlimited innings"
+        if is_test else f"{default_allocation} {allocation_label} per innings"
     )
+    st.caption(f"Match format: {competition['match_format_name']} — {format_detail}.")
     with st.form(f"match_{form_identity}"):
         fixture_columns = st.columns(3)
         match_date = fixture_columns[0].date_input(
@@ -781,7 +783,7 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
         use_revised_allocation = allocation_option_columns[2].checkbox(
             "Use reduced allocation",
             value=bool(selected and selected.get("revised_balls")),
-            key=f"match_use_revised_allocation_{selected_id}",
+            key=f"match_use_revised_allocation_{selected_id}", disabled=is_test,
         )
         allocation_columns = st.columns(3)
         status = allocation_columns[0].selectbox(
@@ -795,12 +797,12 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
         scheduled_allocation = allocation_columns[1].number_input(
             f"Scheduled {allocation_label} per innings",
             value=scheduled_value,
-            key=f"match_scheduled_allocation_{selected_id}",
+            key=f"match_scheduled_allocation_{selected_id}", disabled=is_test,
         )
         revised_allocation = allocation_columns[2].number_input(
             f"Revised {allocation_label} per innings",
             value=revised_value,
-            disabled=not use_revised_allocation,
+            disabled=is_test or not use_revised_allocation,
             key=f"match_revised_allocation_{selected_id}",
         )
         # Targets are authoritative inputs; the application never calculates DLS.
@@ -808,19 +810,19 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
         use_revised_target = target_option_columns[1].checkbox(
             "Use revised target",
             value=bool(selected and selected.get("revised_target_runs")),
-            key=f"match_use_revised_target_{selected_id}",
+            key=f"match_use_revised_target_{selected_id}", disabled=is_test,
         )
         target_columns = st.columns(3)
         original_target = target_columns[0].number_input(
             "Original target (0 to derive from first innings)",
             value=int(selected.get("target_runs") or 0) if selected else 0,
-            key=f"match_original_target_{selected_id}",
+            key=f"match_original_target_{selected_id}", disabled=is_test,
         )
         revised_target = target_columns[1].number_input(
             "Revised target",
             value=int(selected.get("revised_target_runs") or 1)
             if selected else 1,
-            disabled=not use_revised_target,
+            disabled=is_test or not use_revised_target,
             key=f"match_revised_target_{selected_id}",
         )
         calculation_method = target_columns[2].selectbox(
@@ -830,8 +832,24 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
                 list(RESULT_METHODS),
                 selected.get("result_method") if selected else "Standard",
             ),
-            disabled=not use_revised_target,
+            disabled=is_test or not use_revised_target,
             key=f"match_calculation_method_{selected_id}",
+        )
+        test_columns = st.columns(3)
+        scheduled_days = test_columns[0].number_input(
+            "Scheduled days",
+            value=int((selected or {}).get("scheduled_days") or competition.get("scheduled_days") or 5),
+            disabled=not is_test, key=f"match_scheduled_days_{selected_id}",
+        )
+        follow_on_enforced = test_columns[1].checkbox(
+            "Follow-on enforced",
+            value=bool((selected or {}).get("follow_on_enforced")),
+            disabled=not is_test, key=f"match_follow_on_{selected_id}",
+        )
+        effective_follow_on_lead = test_columns[2].number_input(
+            "Follow-on threshold (0 for ruleset)",
+            value=int((selected or {}).get("effective_follow_on_lead") or 0),
+            disabled=not is_test, key=f"match_follow_on_lead_{selected_id}",
         )
         participant_options = {
             "Not recorded": None,
@@ -967,25 +985,34 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
                 away_team_id=team_options[away],
                 match_stage=stage,
                 match_status=status,
-                scheduled_balls=int(scheduled_allocation) * unit_size,
+                scheduled_balls=None if is_test else int(scheduled_allocation) * unit_size,
                 revised_balls=(
                     int(revised_allocation) * unit_size
-                    if use_revised_allocation
+                    if use_revised_allocation and not is_test
                     else None
                 ),
-                target_runs=original_target or None,
+                target_runs=None if is_test else original_target or None,
                 revised_target_runs=(
-                    revised_target if use_revised_target else None
+                    revised_target if use_revised_target and not is_test else None
+                ),
+                scheduled_days=scheduled_days if is_test else None,
+                follow_on_enforced=follow_on_enforced if is_test else False,
+                effective_follow_on_lead=(
+                    effective_follow_on_lead or None if is_test else None
                 ),
                 toss_winner_team_id=participant_options[toss_winner],
                 toss_decision=None if toss_decision == "Not recorded" else toss_decision,
                 winning_team_id=participant_options[winner] if override_result else None,
                 result_type=result_value if override_result else None,
                 result_margin_value=(
-                    margin if override_result and result in {"Runs", "Wickets"} else None
+                    margin
+                    if override_result and result in {"Runs", "Wickets", "Innings and Runs"}
+                    else None
                 ),
                 result_margin_type=(
-                    result if override_result and result in {"Runs", "Wickets"} else None
+                    ("Runs" if result == "Innings and Runs" else result)
+                    if override_result and result in {"Runs", "Wickets", "Innings and Runs"}
+                    else None
                 ),
                 result_method=method,
                 result_source="Manual" if override_result else None,
@@ -1123,6 +1150,21 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
         f"Expected allocation: {match['effective_delivery_display']} "
         f"({match['match_format_name']})."
     )
+    if match["match_format_code"] == "TEST":
+        state = service.test_match_state(match_id)
+        details: list[str] = []
+        if state["first_innings_lead"] is not None:
+            details.append(
+                f"First-innings lead: {state['first_innings_lead']} runs"
+            )
+            details.append(
+                "Follow-on available: "
+                + ("yes" if state["follow_on_available"] else "no")
+            )
+        if state["final_innings_target"] is not None:
+            details.append(f"Final-innings target: {state['final_innings_target']}")
+        if details:
+            st.info(" · ".join(details))
     selected_innings_id = selected_innings["id"] if selected_innings else None
     participant_options: dict[str, int | None] = {
         "Not set": None,
@@ -1378,9 +1420,12 @@ def _analysis_scope(
     :return: Selected competition row and participating teams, or ``None``.
     """
     # Group season-specific database rows behind the human competition name.
-    competitions = service.list_competitions()
+    competitions = [
+        row for row in service.list_competitions()
+        if row["match_format_code"] != "TEST"
+    ]
     if not competitions:
-        st.info("Add a competition and fixtures before using analysis.")
+        st.info("Limited-overs competitions are required for the current analysis reports.")
         return None
     names = sorted({row["name"] for row in competitions}, key=str.casefold)
     selected_name = st.selectbox("Competition", names, key="analysis_competition")
@@ -2115,7 +2160,12 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
             ),
             key=f"ruleset_match_format_{selected_id}",
         )
-        points = st.columns(5)
+        selected_format_row = next(
+            row for row in active_match_formats
+            if int(row["id"]) == match_format_options[match_format]
+        )
+        is_test_ruleset = selected_format_row["code"] == "TEST"
+        points = st.columns(6)
         win_points = points[0].number_input(
             "Win points",
             value=int(selected.get("points_for_win", 2)) if selected else 2,
@@ -2141,6 +2191,11 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
             "Loss points",
             value=int(selected.get("points_for_loss", 0)) if selected else 0,
             key=f"ruleset_loss_{selected_id}",
+        )
+        draw_points = points[5].number_input(
+            "Draw points",
+            value=int(selected.get("points_for_draw", 0)) if selected else 0,
+            key=f"ruleset_draw_{selected_id}",
         )
         has_standings = st.checkbox(
             "Provide a standings table",
@@ -2199,6 +2254,38 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
             value=int(selected.get("balls_per_rate_unit", 6)) if selected else 6,
             key=f"ruleset_rate_unit_{selected_id}",
         )
+        test_rules = st.columns(3)
+        scheduled_days = test_rules[0].number_input(
+            "Scheduled days",
+            value=int(selected.get("scheduled_days") or 5) if selected else 5,
+            disabled=not is_test_ruleset,
+            key=f"ruleset_scheduled_days_{selected_id}",
+        )
+        follow_on_allowed = test_rules[1].checkbox(
+            "Allow follow-on",
+            value=bool(selected.get("follow_on_allowed")) if selected else is_test_ruleset,
+            disabled=not is_test_ruleset,
+            key=f"ruleset_follow_on_{selected_id}",
+        )
+        follow_on_lead = test_rules[2].number_input(
+            "Follow-on lead",
+            value=int(selected.get("follow_on_lead") or 200) if selected else 200,
+            disabled=not is_test_ruleset,
+            key=f"ruleset_follow_on_lead_{selected_id}",
+        )
+        test_endings = st.columns(2)
+        declarations_allowed = test_endings[0].checkbox(
+            "Allow declarations",
+            value=bool(selected.get("declarations_allowed")) if selected else is_test_ruleset,
+            disabled=not is_test_ruleset,
+            key=f"ruleset_declarations_{selected_id}",
+        )
+        forfeitures_allowed = test_endings[1].checkbox(
+            "Allow innings forfeiture",
+            value=bool(selected.get("forfeitures_allowed")) if selected else is_test_ruleset,
+            disabled=not is_test_ruleset,
+            key=f"ruleset_forfeitures_{selected_id}",
+        )
         sort_order = st.text_input(
             "Table sort order *",
             value=selected.get("table_sort_order", "points,net_run_rate,wins")
@@ -2224,6 +2311,7 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
                 points_for_no_result=no_result_points,
                 points_for_abandonment=abandonment_points,
                 points_for_loss=loss_points,
+                points_for_draw=draw_points,
                 has_standings=has_standings,
                 uses_net_run_rate=use_nrr,
                 include_knockout_matches_in_table=include_knockouts,
@@ -2231,6 +2319,11 @@ def _rulesets(service: CricketService, read_only: bool = False) -> None:
                 ties_may_stand=ties_may_stand,
                 tie_break_winner_allowed=tie_break_winner_allowed,
                 revised_targets_allowed=revised_targets_allowed,
+                scheduled_days=scheduled_days if is_test_ruleset else None,
+                follow_on_allowed=follow_on_allowed if is_test_ruleset else False,
+                follow_on_lead=follow_on_lead if is_test_ruleset else None,
+                declarations_allowed=declarations_allowed if is_test_ruleset else False,
+                forfeitures_allowed=forfeitures_allowed if is_test_ruleset else False,
                 balls_per_innings=balls,
                 wickets_per_innings=wickets,
                 balls_per_rate_unit=rate_unit,

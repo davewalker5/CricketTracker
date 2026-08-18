@@ -293,6 +293,16 @@ class CricketImporter:
             revised_targets_allowed=_boolean(
                 row.get("revised_targets_allowed")
             ),
+            points_for_draw=row.get("points_for_draw", 0),
+            scheduled_days=_optional_integer(row.get("scheduled_days")),
+            follow_on_allowed=_boolean(row.get("follow_on_allowed"), False),
+            follow_on_lead=_optional_integer(row.get("follow_on_lead")),
+            declarations_allowed=_boolean(
+                row.get("declarations_allowed"), False
+            ),
+            forfeitures_allowed=_boolean(
+                row.get("forfeitures_allowed"), False
+            ),
         )
 
     def _competition(self, row: dict[str, str]) -> None:
@@ -363,6 +373,13 @@ class CricketImporter:
             target_runs=_optional_integer(row.get("target_runs")),
             revised_target_runs=_optional_integer(
                 row.get("revised_target_runs")
+            ),
+            scheduled_days=_optional_integer(row.get("scheduled_days")),
+            follow_on_enforced=_boolean(
+                row.get("follow_on_enforced"), False
+            ),
+            effective_follow_on_lead=_optional_integer(
+                row.get("effective_follow_on_lead")
             ),
             _defer_completion_validation=True,
         )

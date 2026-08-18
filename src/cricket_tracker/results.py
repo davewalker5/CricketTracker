@@ -1,4 +1,4 @@
-"""Structured result calculation for one-innings limited-overs cricket."""
+"""Structured result calculation for supported cricket formats."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ class CalculatedResult:
         """
         # Margin type follows the result type only for numeric victories.
         margin_type = (
+            "Runs" if self.result_type == "Innings and Runs" else
             self.result_type if self.result_type in {"Runs", "Wickets"} else None
         )
         return {
@@ -132,3 +133,96 @@ def calculate_limited_overs_result(
         margin=margin,
         method=method,
     )
+
+
+TEST_CLOSED_INNINGS = {
+    "Completed", "All Out", "Declared", "Forfeited", "Target Reached",
+}
+
+
+def calculate_test_result(
+    *,
+    match: dict[str, Any],
+    innings: list[dict[str, Any]],
+    wickets_per_innings: int,
+) -> CalculatedResult | None:
+    """Calculate a Test result from chronological innings summaries.
+
+    Draws remain explicit because the summary model does not track elapsed playing
+    time. Wins and ties are derived only from closed innings and aggregate scores.
+    """
+    status = str(match["match_status"])
+    if status in {"Abandoned", "No Result"}:
+        return CalculatedResult(status=status, winner_team_id=None, result_type=status)
+    if status == "Drawn" or match.get("result_type") == "Draw":
+        return CalculatedResult(status="Drawn", winner_team_id=None, result_type="Draw")
+    if status != "Completed" or not 2 <= len(innings) <= 4:
+        return None
+    if [int(row["innings_number"]) for row in innings] != list(range(1, len(innings) + 1)):
+        return None
+    if any(row.get("batting_team_id") is None or row.get("runs") is None for row in innings):
+        return None
+
+    participants = {int(match["home_team_id"]), int(match["away_team_id"])}
+    if {int(row["batting_team_id"]) for row in innings} - participants:
+        return None
+    team_innings = {
+        team_id: [row for row in innings if int(row["batting_team_id"]) == team_id]
+        for team_id in participants
+    }
+    if any(not rows or len(rows) > 2 for rows in team_innings.values()):
+        return None
+    aggregates = {
+        team_id: sum(int(row["runs"]) for row in rows)
+        for team_id, rows in team_innings.items()
+    }
+
+    # An innings victory occurs after both losing innings close while the winner
+    # has batted only once, irrespective of whether the follow-on was enforced.
+    for winner, winner_rows in team_innings.items():
+        loser = next(team_id for team_id in participants if team_id != winner)
+        loser_rows = team_innings[loser]
+        if (
+            len(winner_rows) == 1
+            and len(loser_rows) == 2
+            and all(row.get("innings_status") in TEST_CLOSED_INNINGS for row in loser_rows)
+            and aggregates[winner] > aggregates[loser]
+        ):
+            return CalculatedResult(
+                status="Completed",
+                winner_team_id=winner,
+                result_type="Innings and Runs",
+                margin=aggregates[winner] - aggregates[loser],
+            )
+
+    last = innings[-1]
+    last_team = int(last["batting_team_id"])
+    other_team = next(team_id for team_id in participants if team_id != last_team)
+    target = aggregates[other_team] - (
+        aggregates[last_team] - int(last["runs"])
+    ) + 1
+    if int(last["runs"]) >= target:
+        wickets = last.get("wickets")
+        if wickets is None:
+            return None
+        margin = wickets_per_innings - int(wickets)
+        if margin <= 0:
+            return None
+        return CalculatedResult(
+            status="Completed", winner_team_id=last_team,
+            result_type="Wickets", margin=margin,
+        )
+
+    if last.get("innings_status") not in TEST_CLOSED_INNINGS:
+        return None
+    difference = aggregates[other_team] - aggregates[last_team]
+    if difference > 0 and len(team_innings[last_team]) == 2:
+        return CalculatedResult(
+            status="Completed", winner_team_id=other_team,
+            result_type="Runs", margin=difference,
+        )
+    if difference == 0 and all(len(rows) == 2 for rows in team_innings.values()):
+        return CalculatedResult(
+            status="Completed", winner_team_id=None, result_type="Tie",
+        )
+    return None
