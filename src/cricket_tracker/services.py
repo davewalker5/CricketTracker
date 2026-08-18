@@ -599,6 +599,19 @@ class CricketService:
             # Exceptional result types conclusively determine their matching status.
             status = result_type
         competition_id = int(values["competition_id"])
+        competition = self.repo.competitions.get(competition_id)
+        if not competition:
+            raise ValidationError("Select a valid competition.")
+        team_rows = [
+            self.repo.teams.get(team_id)
+            for team_id in (home_team_id, away_team_id)
+        ]
+        if any(team is None for team in team_rows):
+            raise ValidationError("Select valid home and away teams.")
+        if any(team["gender"] != competition["gender"] for team in team_rows):
+            raise ValidationError(
+                "Home and away teams must match the competition gender."
+            )
         conditions = self._playing_conditions_for_competition(competition_id)
         format_balls = legal_balls_for_limit(
             int(conditions["innings_limit"]),

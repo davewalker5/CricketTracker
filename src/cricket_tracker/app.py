@@ -108,12 +108,27 @@ def _team_options(rows: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
+def _competition_team_options(
+    teams: list[dict[str, Any]], competition: dict[str, Any]
+) -> dict[str, int]:
+    """Return teams whose gender matches the selected competition.
+
+    :param teams: Available team rows.
+    :param competition: Selected competition row.
+    :return: Gender-qualified team labels mapped to identifiers.
+    """
+    return _team_options(
+        [team for team in teams if team.get("gender") == competition.get("gender")]
+    )
+
+
 def _save(
     action: Callable[[], Any],
     message: str,
     connection: sqlite3.Connection,
     read_only: bool = False,
     error_key: str | None = None,
+    on_success: Callable[[Any], None] | None = None,
 ) -> None:
     """Run a UI mutation and show its safe outcome.
 
@@ -135,9 +150,11 @@ def _save(
         # A new attempt supersedes the previous validation message for this record.
         st.session_state.pop(error_key, None)
     try:
-        action()
+        result = action()
         # Persist the mutation before Streamlit interrupts execution for its rerun.
         connection.commit()
+        if on_success:
+            on_success(result)
         _queue_success(message)
         st.rerun()
     except (ValidationError, sqlite3.IntegrityError, LookupError) as error:
@@ -306,6 +323,30 @@ def _sync_workspace_match(
     st.session_state["match_editor_new"] = False
 
 
+def _select_saved_match(saved_id: int) -> None:
+    """Select a newly created match and rebuild its table row.
+
+    :param saved_id: Identifier returned by the match save.
+    :return: None.
+    """
+    st.session_state["match_workspace_match_id"] = int(saved_id)
+    st.session_state["match_editor_new"] = False
+    st.session_state["match_editor_generation"] = (
+        st.session_state.get("match_editor_generation", 0) + 1
+    )
+
+
+def _reset_new_innings_form(editor_key: str, generation: int) -> None:
+    """Close and reset a new-innings form after saving.
+
+    :param editor_key: Match-specific innings editor key.
+    :param generation: Generation used by the form that was just saved.
+    :return: None.
+    """
+    st.session_state[f"{editor_key}_new_form_generation"] = generation + 1
+    st.session_state[f"{editor_key}_new"] = False
+
+
 def _choose_match_selection(
     checked_ids: list[int],
     selected_match_id: int | None,
@@ -439,7 +480,6 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
     competition_options = {
         f"{row['name']} — {row['season']}": int(row["id"]) for row in competitions
     }
-    team_options = _team_options(teams)
     venue_options: dict[str, int | None] = {"Not set": None, **_options(service.list_venues())}
     competition_label = st.selectbox(
         "Competition",
@@ -451,6 +491,13 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
     competition = next(
         row for row in competitions if int(row["id"]) == competition_id
     )
+    team_options = _competition_team_options(teams, competition)
+    if len(team_options) < 2:
+        st.info(
+            "Add at least two teams matching this competition's gender before "
+            "creating fixtures."
+        )
+        return
     matches = service.list_matches(competition_id)
     shared_match_id = st.session_state.get("match_workspace_match_id")
     table_selected = _selectable_match_table(
@@ -834,6 +881,11 @@ def _match_editor_tab(service: CricketService, read_only: bool = False) -> None:
             service.repo.connection,
             read_only,
             error_key=match_error_key,
+            on_success=(
+                _select_saved_match
+                if selected_id is None
+                else None
+            ),
         )
     elif delete_clicked and selected_id is not None:
         st.session_state["match_workspace_match_id"] = None
@@ -971,8 +1023,13 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
         "Not set",
     )
     # A record-specific form prevents values leaking between selected innings.
+    new_form_generation = st.session_state.get(
+        f"{innings_editor_key}_new_form_generation", 0
+    )
     innings_form_identity = (
-        selected_innings_id if selected_innings_id is not None else "new"
+        selected_innings_id
+        if selected_innings_id is not None
+        else f"new_{new_form_generation}"
     )
     innings_error_key = (
         f"innings_save_error_{match_id}_{innings_form_identity}"
@@ -984,13 +1041,13 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
             "Innings number",
             value=int(selected_innings.get("innings_number", len(innings) + 1))
             if selected_innings else len(innings) + 1,
-            key=f"innings_number_{match_id}_{selected_innings_id}",
+            key=f"innings_number_{match_id}_{innings_form_identity}",
         )
         batting = innings_detail_columns[1].selectbox(
             "Batting team",
             participant_labels,
             index=_selected_index(participant_labels, selected_batting),
-            key=f"innings_batting_{match_id}_{selected_innings_id}",
+            key=f"innings_batting_{match_id}_{innings_form_identity}",
         )
         innings_status = innings_detail_columns[2].selectbox(
             "Innings status",
@@ -1000,18 +1057,18 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
                 selected_innings.get("innings_status")
                 if selected_innings else "not_started",
             ),
-            key=f"innings_status_{match_id}_{selected_innings_id}",
+            key=f"innings_status_{match_id}_{innings_form_identity}",
         )
         score_columns = st.columns(3)
         runs = score_columns[0].number_input(
             "Runs",
             value=int(selected_innings.get("runs") or 0) if selected_innings else 0,
-            key=f"innings_runs_{match_id}_{selected_innings_id}",
+            key=f"innings_runs_{match_id}_{innings_form_identity}",
         )
         wickets = score_columns[1].number_input(
             "Wickets",
             value=int(selected_innings.get("wickets") or 0) if selected_innings else 0,
-            key=f"innings_wickets_{match_id}_{selected_innings_id}",
+            key=f"innings_wickets_{match_id}_{innings_form_identity}",
         )
         balls = score_columns[2].number_input(
             "Legal balls",
@@ -1020,14 +1077,14 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
                 "Enter canonical legal balls. Values above the displayed "
                 "allocation are rejected when you save."
             ),
-            key=f"innings_balls_{match_id}_{selected_innings_id}",
+            key=f"innings_balls_{match_id}_{innings_form_identity}",
         )
         target_columns = st.columns(3)
         target = target_columns[0].number_input(
             "Target (0 if not applicable)",
             value=int(selected_innings.get("target") or 0)
             if selected_innings else 0,
-            key=f"innings_target_{match_id}_{selected_innings_id}",
+            key=f"innings_target_{match_id}_{innings_form_identity}",
         )
         save_column, delete_column, clear_column = st.columns(3)
         innings_save = save_column.form_submit_button(
@@ -1065,6 +1122,13 @@ def _innings_editor_tab(service: CricketService, read_only: bool = False) -> Non
             service.repo.connection,
             read_only,
             error_key=innings_error_key,
+            on_success=(
+                lambda _saved_id: _reset_new_innings_form(
+                    innings_editor_key, new_form_generation
+                )
+                if selected_innings_id is None
+                else None
+            ),
         )
     elif innings_delete and selected_innings_id is not None:
         _delete(
