@@ -1,65 +1,69 @@
 competition,season,match_date,home_team,away_team,innings_number,batting_team,bowling_team,runs,wickets,balls,extras,target,completed,innings_status
-The Hundred Women,2026,2026-07-21,MI London,SunRisers Leeds,1,MI London,SunRisers Leeds,107,8,100,,,1,completed
-The Hundred Women,2026,2026-07-21,MI London,SunRisers Leeds,2,SunRisers Leeds,MI London,109,3,69,,,1,completed
-The Hundred Women,2026,2026-07-22,Southern Brave,Welsh Fire,1,Southern Brave,Welsh Fire,126,7,100,,,1,completed
-The Hundred Women,2026,2026-07-22,Southern Brave,Welsh Fire,2,Welsh Fire,Southern Brave,118,8,100,,,1,completed
-The Hundred Women,2026,2026-07-23,London Spirit,Manchester Super Giants,1,London Spirit,Manchester Super Giants,80,10,91,,,1,completed
-The Hundred Women,2026,2026-07-23,London Spirit,Manchester Super Giants,2,Manchester Super Giants,London Spirit,86,3,59,,,1,completed
-The Hundred Women,2026,2026-07-24,Birmingham Phoenix,Trent Rockets,1,Birmingham Phoenix,Trent Rockets,64,10,95,,,1,completed
-The Hundred Women,2026,2026-07-24,Birmingham Phoenix,Trent Rockets,2,Trent Rockets,Birmingham Phoenix,68,1,31,,,1,completed
-The Hundred Women,2026,2026-07-25,SunRisers Leeds,Southern Brave,1,SunRisers Leeds,Southern Brave,116,10,100,,,1,completed
-The Hundred Women,2026,2026-07-25,SunRisers Leeds,Southern Brave,2,Southern Brave,SunRisers Leeds,117,5,96,,,1,completed
-The Hundred Women,2026,2026-07-25,Welsh Fire,MI London,1,Welsh Fire,MI London,177,4,100,,,1,completed
-The Hundred Women,2026,2026-07-25,Welsh Fire,MI London,2,MI London,Welsh Fire,117,10,92,,,1,completed
-The Hundred Women,2026,2026-07-26,Manchester Super Giants,Birmingham Phoenix,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-07-26,Manchester Super Giants,Birmingham Phoenix,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-07-26,Trent Rockets,London Spirit,1,Trent Rockets,London Spirit,142,7,100,,,1,completed
-The Hundred Women,2026,2026-07-26,Trent Rockets,London Spirit,2,London Spirit,Trent Rockets,146,5,97,,,1,completed
-The Hundred Women,2026,2026-07-27,Southern Brave,MI London,1,Southern Brave,MI London,126,7,100,,,1,completed
-The Hundred Women,2026,2026-07-27,Southern Brave,MI London,2,MI London,Southern Brave,125,3,100,,,1,completed
-The Hundred Women,2026,2026-07-28,SunRisers Leeds,Manchester Super Giants,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-07-28,SunRisers Leeds,Manchester Super Giants,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-07-29,Welsh Fire,Trent Rockets,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-07-29,Welsh Fire,Trent Rockets,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-07-29,MI London,London Spirit,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-07-29,MI London,London Spirit,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-07-30,Southern Brave,Birmingham Phoenix,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-07-30,Southern Brave,Birmingham Phoenix,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-07-31,Manchester Super Giants,Trent Rockets,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-07-31,Manchester Super Giants,Trent Rockets,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-01,Birmingham Phoenix,Welsh Fire,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-01,Birmingham Phoenix,Welsh Fire,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-01,London Spirit,Southern Brave,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-01,London Spirit,Southern Brave,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-02,Trent Rockets,SunRisers Leeds,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-02,Trent Rockets,SunRisers Leeds,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-02,MI London,Manchester Super Giants,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-02,MI London,Manchester Super Giants,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-03,Welsh Fire,Southern Brave,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-03,Welsh Fire,Southern Brave,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-04,SunRisers Leeds,London Spirit,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-04,SunRisers Leeds,London Spirit,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-05,Manchester Super Giants,Welsh Fire,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-05,Manchester Super Giants,Welsh Fire,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-05,Trent Rockets,Birmingham Phoenix,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-05,Trent Rockets,Birmingham Phoenix,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-06,London Spirit,MI London,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-06,London Spirit,MI London,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-07,Birmingham Phoenix,SunRisers Leeds,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-07,Birmingham Phoenix,SunRisers Leeds,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-08,MI London,Trent Rockets,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-08,MI London,Trent Rockets,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-08,Southern Brave,Manchester Super Giants,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-08,Southern Brave,Manchester Super Giants,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-09,SunRisers Leeds,Welsh Fire,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-09,SunRisers Leeds,Welsh Fire,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-09,London Spirit,Birmingham Phoenix,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-09,London Spirit,Birmingham Phoenix,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-10,Trent Rockets,Southern Brave,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-10,Trent Rockets,Southern Brave,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-11,Manchester Super Giants,SunRisers Leeds,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-11,Manchester Super Giants,SunRisers Leeds,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-12,Welsh Fire,London Spirit,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-12,Welsh Fire,London Spirit,2,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-12,Birmingham Phoenix,MI London,1,,,,,,,,0,not_started
-The Hundred Women,2026,2026-08-12,Birmingham Phoenix,MI London,2,,,,,,,,0,not_started
+The Hundred Women,2026,2026-07-21,MI London,SunRisers Leeds,1,MI London,SunRisers Leeds,107,8,100,,,1,Completed
+The Hundred Women,2026,2026-07-21,MI London,SunRisers Leeds,2,SunRisers Leeds,MI London,109,3,69,,,1,Completed
+The Hundred Women,2026,2026-07-22,Southern Brave,Welsh Fire,1,Southern Brave,Welsh Fire,126,7,100,,,1,Completed
+The Hundred Women,2026,2026-07-22,Southern Brave,Welsh Fire,2,Welsh Fire,Southern Brave,118,8,100,,,1,Completed
+The Hundred Women,2026,2026-07-23,London Spirit,Manchester Super Giants,1,London Spirit,Manchester Super Giants,80,10,91,,,1,Completed
+The Hundred Women,2026,2026-07-23,London Spirit,Manchester Super Giants,2,Manchester Super Giants,London Spirit,86,3,59,,,1,Completed
+The Hundred Women,2026,2026-07-24,Birmingham Phoenix,Trent Rockets,1,Birmingham Phoenix,Trent Rockets,64,10,95,,,1,Completed
+The Hundred Women,2026,2026-07-24,Birmingham Phoenix,Trent Rockets,2,Trent Rockets,Birmingham Phoenix,68,1,31,,,1,Completed
+The Hundred Women,2026,2026-07-25,SunRisers Leeds,Southern Brave,1,SunRisers Leeds,Southern Brave,116,10,100,,,1,Completed
+The Hundred Women,2026,2026-07-25,SunRisers Leeds,Southern Brave,2,Southern Brave,SunRisers Leeds,117,5,96,,,1,Completed
+The Hundred Women,2026,2026-07-25,Welsh Fire,MI London,1,Welsh Fire,MI London,177,4,100,,,1,Completed
+The Hundred Women,2026,2026-07-25,Welsh Fire,MI London,2,MI London,Welsh Fire,117,10,92,,,1,Completed
+The Hundred Women,2026,2026-07-26,Manchester Super Giants,Birmingham Phoenix,1,,,0,0,0,,,0,Abandoned
+The Hundred Women,2026,2026-07-26,Manchester Super Giants,Birmingham Phoenix,2,,,0,0,0,,,0,Abandoned
+The Hundred Women,2026,2026-07-26,Trent Rockets,London Spirit,1,Trent Rockets,London Spirit,142,7,100,,,1,Completed
+The Hundred Women,2026,2026-07-26,Trent Rockets,London Spirit,2,London Spirit,Trent Rockets,146,5,97,,,1,Completed
+The Hundred Women,2026,2026-07-27,Southern Brave,MI London,1,Southern Brave,MI London,126,7,100,,,1,Completed
+The Hundred Women,2026,2026-07-27,Southern Brave,MI London,2,MI London,Southern Brave,125,3,100,,,1,Completed
+The Hundred Women,2026,2026-07-28,SunRisers Leeds,Manchester Super Giants,1,SunRisers Leeds,Manchester Super Giants,142,4,100,,,1,Completed
+The Hundred Women,2026,2026-07-28,SunRisers Leeds,Manchester Super Giants,2,Manchester Super Giants,SunRisers Leeds,147,6,96,,,1,Completed
+The Hundred Women,2026,2026-07-29,Welsh Fire,Trent Rockets,1,Welsh Fire,Trent Rockets,129,3,100,,,1,Completed
+The Hundred Women,2026,2026-07-29,Welsh Fire,Trent Rockets,2,Trent Rockets,Welsh Fire,132,2,83,,,1,Completed
+The Hundred Women,2026,2026-07-29,MI London,London Spirit,1,MI London,London Spirit,151,4,100,,,1,Completed
+The Hundred Women,2026,2026-07-29,MI London,London Spirit,2,London Spirit,MI London,151,5,100,,,1,Completed
+The Hundred Women,2026,2026-07-30,Southern Brave,Birmingham Phoenix,1,Southern Brave,Birmingham Phoenix,140,3,100,,,1,Completed
+The Hundred Women,2026,2026-07-30,Southern Brave,Birmingham Phoenix,2,Birmingham Phoenix,Southern Brave,116,5,100,,,1,Completed
+The Hundred Women,2026,2026-07-31,Manchester Super Giants,Trent Rockets,1,Trent Rockets,Manchester Super Giants,153,8,100,,,1,Completed
+The Hundred Women,2026,2026-07-31,Manchester Super Giants,Trent Rockets,2,Manchester Super Giants,Trent Rockets,122,10,93,,,1,Completed
+The Hundred Women,2026,2026-08-01,Birmingham Phoenix,Welsh Fire,1,Welsh Fire,Birmingham Phoenix,144,3,100,,,1,Completed
+The Hundred Women,2026,2026-08-01,Birmingham Phoenix,Welsh Fire,2,Birmingham Phoenix,Welsh Fire,145,3,99,,,1,Completed
+The Hundred Women,2026,2026-08-01,London Spirit,Southern Brave,1,London Spirit,Southern Brave,114,8,100,,,1,Completed
+The Hundred Women,2026,2026-08-01,London Spirit,Southern Brave,2,Southern Brave,London Spirit,115,5,93,,,1,Completed
+The Hundred Women,2026,2026-08-02,Trent Rockets,SunRisers Leeds,1,Trent Rockets,SunRisers Leeds,139,7,100,,,1,Completed
+The Hundred Women,2026,2026-08-02,Trent Rockets,SunRisers Leeds,2,SunRisers Leeds,Trent Rockets,134,5,100,,,1,Completed
+The Hundred Women,2026,2026-08-02,MI London,Manchester Super Giants,1,MI London,Manchester Super Giants,92,10,99,,,1,Completed
+The Hundred Women,2026,2026-08-02,MI London,Manchester Super Giants,2,Manchester Super Giants,MI London,95,4,72,,,1,Completed
+The Hundred Women,2026,2026-08-03,Welsh Fire,Southern Brave,1,Southern Brave,Welsh Fire,121,5,100,,,1,Completed
+The Hundred Women,2026,2026-08-03,Welsh Fire,Southern Brave,2,Welsh Fire,Southern Brave,122,6,100,,,1,Completed
+The Hundred Women,2026,2026-08-04,SunRisers Leeds,London Spirit,1,London Spirit,SunRisers Leeds,136,7,100,,,1,Completed
+The Hundred Women,2026,2026-08-04,SunRisers Leeds,London Spirit,2,SunRisers Leeds,London Spirit,140,5,98,,,1,Completed
+The Hundred Women,2026,2026-08-05,Manchester Super Giants,Welsh Fire,1,Manchester Super Giants,Welsh Fire,85,9,100,,,1,Completed
+The Hundred Women,2026,2026-08-05,Manchester Super Giants,Welsh Fire,2,Welsh Fire,Manchester Super Giants,88,7,91,,,1,Completed
+The Hundred Women,2026,2026-08-05,Trent Rockets,Birmingham Phoenix,1,Birmingham Phoenix,Trent Rockets,122,7,100,,,1,Completed
+The Hundred Women,2026,2026-08-05,Trent Rockets,Birmingham Phoenix,2,Trent Rockets,Birmingham Phoenix,124,4,84,,,1,Completed
+The Hundred Women,2026,2026-08-06,London Spirit,MI London,1,MI London,London Spirit,122,9,100,,,1,Completed
+The Hundred Women,2026,2026-08-06,London Spirit,MI London,2,London Spirit,MI London,119,8,100,,,1,Completed
+The Hundred Women,2026,2026-08-07,Birmingham Phoenix,SunRisers Leeds,1,Birmingham Phoenix,SunRisers Leeds,107,9,100,,,1,Completed
+The Hundred Women,2026,2026-08-07,Birmingham Phoenix,SunRisers Leeds,2,SunRisers Leeds,Birmingham Phoenix,111,1,69,,,1,Completed
+The Hundred Women,2026,2026-08-08,MI London,Trent Rockets,1,MI London,Trent Rockets,121,5,100,,,1,Completed
+The Hundred Women,2026,2026-08-08,MI London,Trent Rockets,2,Trent Rockets,MI London,125,1,82,,,1,Completed
+The Hundred Women,2026,2026-08-08,Southern Brave,Manchester Super Giants,1,Manchester Super Giants,Southern Brave,139,4,100,,,1,Completed
+The Hundred Women,2026,2026-08-08,Southern Brave,Manchester Super Giants,2,Southern Brave,Manchester Super Giants,112,6,100,,,1,Completed
+The Hundred Women,2026,2026-08-09,SunRisers Leeds,Welsh Fire,1,Welsh Fire,SunRisers Leeds,121,8,100,,,1,Completed
+The Hundred Women,2026,2026-08-09,SunRisers Leeds,Welsh Fire,2,SunRisers Leeds,Welsh Fire,122,4,74,,,1,Completed
+The Hundred Women,2026,2026-08-09,London Spirit,Birmingham Phoenix,1,London Spirit,Birmingham Phoenix,140,4,100,,,1,Completed
+The Hundred Women,2026,2026-08-09,London Spirit,Birmingham Phoenix,2,Birmingham Phoenix,London Spirit,108,8,100,,,1,Completed
+The Hundred Women,2026,2026-08-10,Trent Rockets,Southern Brave,1,Southern Brave,Trent Rockets,117,5,100,,,1,Completed
+The Hundred Women,2026,2026-08-10,Trent Rockets,Southern Brave,2,Trent Rockets,Southern Brave,118,7,98,,,1,Completed
+The Hundred Women,2026,2026-08-11,Manchester Super Giants,SunRisers Leeds,1,SunRisers Leeds,Manchester Super Giants,166,4,100,,,1,Completed
+The Hundred Women,2026,2026-08-11,Manchester Super Giants,SunRisers Leeds,2,Manchester Super Giants,SunRisers Leeds,125,8,100,,,1,Completed
+The Hundred Women,2026,2026-08-12,Welsh Fire,London Spirit,1,Welsh Fire,London Spirit,138,7,100,,,1,Completed
+The Hundred Women,2026,2026-08-12,Welsh Fire,London Spirit,2,London Spirit,Welsh Fire,123,10,99,,,1,Completed
+The Hundred Women,2026,2026-08-12,Birmingham Phoenix,MI London,1,MI London,Birmingham Phoenix,120,6,100,,,1,Completed
+The Hundred Women,2026,2026-08-12,Birmingham Phoenix,MI London,2,Birmingham Phoenix,MI London,121,5,94,,,1,Completed
+The Hundred Women,2026,2026-08-14,SunRisers Leeds,Southern Brave,1,Southern Brave,SunRisers Leeds,114,7,100,,,1,Completed
+The Hundred Women,2026,2026-08-14,SunRisers Leeds,Southern Brave,2,SunRisers Leeds,Southern Brave,116,5,89,,,1,Completed
+The Hundred Women,2026,2026-08-16,Trent Rockets,SunRisers Leeds,1,SunRisers Leeds,Trent Rockets,91,10,91,,,1,Completed
+The Hundred Women,2026,2026-08-16,Trent Rockets,SunRisers Leeds,2,Trent Rockets,SunRisers Leeds,92,2,54,,,1,Completed

@@ -1,65 +1,69 @@
 competition,season,match_date,home_team,away_team,innings_number,batting_team,bowling_team,runs,wickets,balls,extras,target,completed,innings_status
-The Hundred Men,2026,2026-07-21,MI London,SunRisers Leeds,1,SunRisers Leeds,MI London,143,10,99,,,1,completed
-The Hundred Men,2026,2026-07-21,MI London,SunRisers Leeds,2,MI London,SunRisers Leeds,144,3,84,,,1,completed
-The Hundred Men,2026,2026-07-22,Southern Brave,Welsh Fire,1,Southern Brave,Welsh Fire,135,7,100,,,1,completed
-The Hundred Men,2026,2026-07-22,Southern Brave,Welsh Fire,2,Welsh Fire,Southern Brave,138,4,98,,,1,completed
-The Hundred Men,2026,2026-07-23,London Spirit,Manchester Super Giants,1,Manchester Super Giants,London Spirit,138,9,100,,,1,completed
-The Hundred Men,2026,2026-07-23,London Spirit,Manchester Super Giants,2,London Spirit,Manchester Super Giants,131,6,100,,,1,completed
-The Hundred Men,2026,2026-07-24,Birmingham Phoenix,Trent Rockets,1,Birmingham Phoenix,Trent Rockets,214,4,100,,,1,completed
-The Hundred Men,2026,2026-07-24,Birmingham Phoenix,Trent Rockets,2,Trent Rockets,Birmingham Phoenix,204,7,100,,,1,completed
-The Hundred Men,2026,2026-07-25,SunRisers Leeds,Southern Brave,1,SunRisers Leeds,Southern Brave,187,5,100,,,1,completed
-The Hundred Men,2026,2026-07-25,SunRisers Leeds,Southern Brave,2,Southern Brave,SunRisers Leeds,182,5,100,,,1,completed
-The Hundred Men,2026,2026-07-25,Welsh Fire,MI London,1,Welsh Fire,MI London,167,5,100,,,1,completed
-The Hundred Men,2026,2026-07-25,Welsh Fire,MI London,2,MI London,Welsh Fire,152,6,100,,,1,completed
-The Hundred Men,2026,2026-07-26,Manchester Super Giants,Birmingham Phoenix,1,Manchester Super Giants,Birmingham Phoenix,187,5,100,,,1,completed
-The Hundred Men,2026,2026-07-26,Manchester Super Giants,Birmingham Phoenix,2,Birmingham Phoenix,Manchester Super Giants,100,10,97,,,1,completed
-The Hundred Men,2026,2026-07-26,Trent Rockets,London Spirit,1,London Spirit,Trent Rockets,159,9,100,,,1,completed
-The Hundred Men,2026,2026-07-26,Trent Rockets,London Spirit,2,Trent Rockets,London Spirit,160,6,98,,,1,completed
-The Hundred Men,2026,2026-07-27,Southern Brave,MI London,1,Southern Brave,MI London,129,9,100,,,1,completed
-The Hundred Men,2026,2026-07-27,Southern Brave,MI London,2,MI London,Southern Brave,130,7,100,,,1,completed
-The Hundred Men,2026,2026-07-28,SunRisers Leeds,Manchester Super Giants,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-07-28,SunRisers Leeds,Manchester Super Giants,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-07-29,Welsh Fire,Trent Rockets,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-07-29,Welsh Fire,Trent Rockets,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-07-29,MI London,London Spirit,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-07-29,MI London,London Spirit,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-07-30,Southern Brave,Birmingham Phoenix,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-07-30,Southern Brave,Birmingham Phoenix,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-07-31,Manchester Super Giants,Trent Rockets,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-07-31,Manchester Super Giants,Trent Rockets,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-01,Birmingham Phoenix,Welsh Fire,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-01,Birmingham Phoenix,Welsh Fire,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-01,London Spirit,Southern Brave,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-01,London Spirit,Southern Brave,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-02,Trent Rockets,SunRisers Leeds,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-02,Trent Rockets,SunRisers Leeds,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-02,MI London,Manchester Super Giants,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-02,MI London,Manchester Super Giants,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-03,Welsh Fire,Southern Brave,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-03,Welsh Fire,Southern Brave,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-04,SunRisers Leeds,London Spirit,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-04,SunRisers Leeds,London Spirit,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-05,Manchester Super Giants,Welsh Fire,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-05,Manchester Super Giants,Welsh Fire,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-05,Trent Rockets,Birmingham Phoenix,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-05,Trent Rockets,Birmingham Phoenix,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-06,London Spirit,MI London,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-06,London Spirit,MI London,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-07,Birmingham Phoenix,SunRisers Leeds,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-07,Birmingham Phoenix,SunRisers Leeds,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-08,MI London,Trent Rockets,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-08,MI London,Trent Rockets,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-08,Southern Brave,Manchester Super Giants,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-08,Southern Brave,Manchester Super Giants,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-09,SunRisers Leeds,Welsh Fire,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-09,SunRisers Leeds,Welsh Fire,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-09,London Spirit,Birmingham Phoenix,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-09,London Spirit,Birmingham Phoenix,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-10,Trent Rockets,Southern Brave,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-10,Trent Rockets,Southern Brave,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-11,Manchester Super Giants,SunRisers Leeds,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-11,Manchester Super Giants,SunRisers Leeds,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-12,Welsh Fire,London Spirit,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-12,Welsh Fire,London Spirit,2,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-12,Birmingham Phoenix,MI London,1,,,,,,,,0,not_started
-The Hundred Men,2026,2026-08-12,Birmingham Phoenix,MI London,2,,,,,,,,0,not_started
+The Hundred Men,2026,2026-07-21,MI London,SunRisers Leeds,1,SunRisers Leeds,MI London,143,10,99,,,1,Completed
+The Hundred Men,2026,2026-07-21,MI London,SunRisers Leeds,2,MI London,SunRisers Leeds,144,3,84,,,1,Completed
+The Hundred Men,2026,2026-07-22,Southern Brave,Welsh Fire,1,Southern Brave,Welsh Fire,135,7,100,,,1,Completed
+The Hundred Men,2026,2026-07-22,Southern Brave,Welsh Fire,2,Welsh Fire,Southern Brave,138,4,98,,,1,Completed
+The Hundred Men,2026,2026-07-23,London Spirit,Manchester Super Giants,1,Manchester Super Giants,London Spirit,138,9,100,,,1,Completed
+The Hundred Men,2026,2026-07-23,London Spirit,Manchester Super Giants,2,London Spirit,Manchester Super Giants,131,6,100,,,1,Completed
+The Hundred Men,2026,2026-07-24,Birmingham Phoenix,Trent Rockets,1,Birmingham Phoenix,Trent Rockets,214,4,100,,,1,Completed
+The Hundred Men,2026,2026-07-24,Birmingham Phoenix,Trent Rockets,2,Trent Rockets,Birmingham Phoenix,204,7,100,,,1,Completed
+The Hundred Men,2026,2026-07-25,SunRisers Leeds,Southern Brave,1,SunRisers Leeds,Southern Brave,187,5,100,,,1,Completed
+The Hundred Men,2026,2026-07-25,SunRisers Leeds,Southern Brave,2,Southern Brave,SunRisers Leeds,182,5,100,,,1,Completed
+The Hundred Men,2026,2026-07-25,Welsh Fire,MI London,1,Welsh Fire,MI London,167,5,100,,,1,Completed
+The Hundred Men,2026,2026-07-25,Welsh Fire,MI London,2,MI London,Welsh Fire,152,6,100,,,1,Completed
+The Hundred Men,2026,2026-07-26,Manchester Super Giants,Birmingham Phoenix,1,Manchester Super Giants,Birmingham Phoenix,187,5,100,,,1,Completed
+The Hundred Men,2026,2026-07-26,Manchester Super Giants,Birmingham Phoenix,2,Birmingham Phoenix,Manchester Super Giants,100,10,97,,,1,Completed
+The Hundred Men,2026,2026-07-26,Trent Rockets,London Spirit,1,London Spirit,Trent Rockets,159,9,100,,,1,Completed
+The Hundred Men,2026,2026-07-26,Trent Rockets,London Spirit,2,Trent Rockets,London Spirit,160,6,98,,,1,Completed
+The Hundred Men,2026,2026-07-27,Southern Brave,MI London,1,Southern Brave,MI London,129,9,100,,,1,Completed
+The Hundred Men,2026,2026-07-27,Southern Brave,MI London,2,MI London,Southern Brave,130,7,100,,,1,Completed
+The Hundred Men,2026,2026-07-28,SunRisers Leeds,Manchester Super Giants,1,Manchester Super Giants,SunRisers Leeds,181,3,100,,,1,Completed
+The Hundred Men,2026,2026-07-28,SunRisers Leeds,Manchester Super Giants,2,SunRisers Leeds,Manchester Super Giants,186,2,88,,,1,Completed
+The Hundred Men,2026,2026-07-29,Welsh Fire,Trent Rockets,1,Welsh Fire,Trent Rockets,122,7,100,,,1,Completed
+The Hundred Men,2026,2026-07-29,Welsh Fire,Trent Rockets,2,Trent Rockets,Welsh Fire,126,1,72,,,1,Completed
+The Hundred Men,2026,2026-07-29,MI London,London Spirit,1,MI London,London Spirit,164,5,100,,,1,Completed
+The Hundred Men,2026,2026-07-29,MI London,London Spirit,2,London Spirit,MI London,165,3,89,,,1,Completed
+The Hundred Men,2026,2026-07-30,Southern Brave,Birmingham Phoenix,1,Southern Brave,Birmingham Phoenix,128,8,100,,,1,Completed
+The Hundred Men,2026,2026-07-30,Southern Brave,Birmingham Phoenix,2,Birmingham Phoenix,Southern Brave,116,9,100,,,1,Completed
+The Hundred Men,2026,2026-07-31,Manchester Super Giants,Trent Rockets,1,Manchester Super Giants,Trent Rockets,137,3,100,,,1,Completed
+The Hundred Men,2026,2026-07-31,Manchester Super Giants,Trent Rockets,2,Trent Rockets,Manchester Super Giants,140,4,87,,,1,Completed
+The Hundred Men,2026,2026-08-01,Birmingham Phoenix,Welsh Fire,1,Birmingham Phoenix,Welsh Fire,137,9,100,,,1,Completed
+The Hundred Men,2026,2026-08-01,Birmingham Phoenix,Welsh Fire,2,Welsh Fire,Birmingham Phoenix,138,3,96,,,1,Completed
+The Hundred Men,2026,2026-08-01,London Spirit,Southern Brave,1,London Spirit,Southern Brave,105,10,92,,,1,Completed
+The Hundred Men,2026,2026-08-01,London Spirit,Southern Brave,2,Southern Brave,London Spirit,111,5,97,,,1,Completed
+The Hundred Men,2026,2026-08-02,Trent Rockets,SunRisers Leeds,1,Trent Rockets,SunRisers Leeds,146,4,100,,,1,Completed
+The Hundred Men,2026,2026-08-02,Trent Rockets,SunRisers Leeds,2,SunRisers Leeds,Trent Rockets,141,4,100,,,1,Completed
+The Hundred Men,2026,2026-08-02,MI London,Manchester Super Giants,1,MI London,Manchester Super Giants,183,6,100,,,1,Completed
+The Hundred Men,2026,2026-08-02,MI London,Manchester Super Giants,2,Manchester Super Giants,MI London,138,10,95,,,1,Completed
+The Hundred Men,2026,2026-08-03,Welsh Fire,Southern Brave,1,Southern Brave,Welsh Fire,115,8,100,,,1,Completed
+The Hundred Men,2026,2026-08-03,Welsh Fire,Southern Brave,2,Welsh Fire,Southern Brave,116,4,95,,,1,Completed
+The Hundred Men,2026,2026-08-04,SunRisers Leeds,London Spirit,1,SunRisers Leeds,London Spirit,241,2,100,,,1,Completed
+The Hundred Men,2026,2026-08-04,SunRisers Leeds,London Spirit,2,London Spirit,SunRisers Leeds,204,6,100,,,1,Completed
+The Hundred Men,2026,2026-08-05,Manchester Super Giants,Welsh Fire,1,Welsh Fire,Manchester Super Giants,155,4,100,,,1,Completed
+The Hundred Men,2026,2026-08-05,Manchester Super Giants,Welsh Fire,2,Manchester Super Giants,Welsh Fire,161,1,69,,,1,Completed
+The Hundred Men,2026,2026-08-05,Trent Rockets,Birmingham Phoenix,1,Birmingham Phoenix,Trent Rockets,111,6,100,,,1,Completed
+The Hundred Men,2026,2026-08-05,Trent Rockets,Birmingham Phoenix,2,Trent Rockets,Birmingham Phoenix,116,3,83,,,1,Completed
+The Hundred Men,2026,2026-08-06,London Spirit,MI London,1,London Spirit,MI London,160,5,100,,,1,Completed
+The Hundred Men,2026,2026-08-06,London Spirit,MI London,2,MI London,London Spirit,164,6,94,,,1,Completed
+The Hundred Men,2026,2026-08-07,Birmingham Phoenix,SunRisers Leeds,1,SunRisers Leeds,Birmingham Phoenix,169,7,100,,,1,Completed
+The Hundred Men,2026,2026-08-07,Birmingham Phoenix,SunRisers Leeds,2,Birmingham Phoenix,SunRisers Leeds,124,8,100,,,1,Completed
+The Hundred Men,2026,2026-08-08,MI London,Trent Rockets,1,MI London,Trent Rockets,147,7,100,,,1,Completed
+The Hundred Men,2026,2026-08-08,MI London,Trent Rockets,2,Trent Rockets,MI London,148,4,90,,,1,Completed
+The Hundred Men,2026,2026-08-08,Southern Brave,Manchester Super Giants,1,Manchester Super Giants,Southern Brave,149,8,100,,,1,Completed
+The Hundred Men,2026,2026-08-08,Southern Brave,Manchester Super Giants,2,Southern Brave,Manchester Super Giants,139,6,100,,,1,Completed
+The Hundred Men,2026,2026-08-09,SunRisers Leeds,Welsh Fire,1,SunRisers Leeds,Welsh Fire,201,4,100,,,1,Completed
+The Hundred Men,2026,2026-08-09,SunRisers Leeds,Welsh Fire,2,Welsh Fire,SunRisers Leeds,130,6,100,,,1,Completed
+The Hundred Men,2026,2026-08-09,London Spirit,Birmingham Phoenix,1,Birmingham Phoenix,London Spirit,162,4,100,,,1,Completed
+The Hundred Men,2026,2026-08-09,London Spirit,Birmingham Phoenix,2,London Spirit,Birmingham Phoenix,166,3,82,,,1,Completed
+The Hundred Men,2026,2026-08-10,Trent Rockets,Southern Brave,1,Trent Rockets,Southern Brave,158,5,100,,,1,Completed
+The Hundred Men,2026,2026-08-10,Trent Rockets,Southern Brave,2,Southern Brave,Trent Rockets,159,4,97,,,1,Completed
+The Hundred Men,2026,2026-08-11,Manchester Super Giants,SunRisers Leeds,1,SunRisers Leeds,Manchester Super Giants,127,10,100,,,1,Completed
+The Hundred Men,2026,2026-08-11,Manchester Super Giants,SunRisers Leeds,2,Manchester Super Giants,SunRisers Leeds,128,0,68,,,1,Completed
+The Hundred Men,2026,2026-08-12,Welsh Fire,London Spirit,1,London Spirit,Welsh Fire,131,8,100,,,1,Completed
+The Hundred Men,2026,2026-08-12,Welsh Fire,London Spirit,2,Welsh Fire,London Spirit,125,7,100,,,1,Completed
+The Hundred Men,2026,2026-08-12,Birmingham Phoenix,MI London,1,MI London,Birmingham Phoenix,157,6,100,,,1,Completed
+The Hundred Men,2026,2026-08-12,Birmingham Phoenix,MI London,2,Birmingham Phoenix,MI London,155,7,100,,,1,Completed
+The Hundred Men,2026,2026-08-14,Manchester Super Giants,SunRisers Leeds,1,Manchester Super Giants,SunRisers Leeds,186,4,100,,,1,Completed
+The Hundred Men,2026,2026-08-14,Manchester Super Giants,SunRisers Leeds,2,SunRisers Leeds,Manchester Super Giants,166,7,100,,,1,Completed
+The Hundred Men,2026,2026-08-16,Trent Rockets,Manchester Super Giants,1,Trent Rockets,Manchester Super Giants,158,8,100,,,1,Completed
+The Hundred Men,2026,2026-08-16,Trent Rockets,Manchester Super Giants,2,Manchester Super Giants,Trent Rockets,162,5,98,,,1,Completed

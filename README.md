@@ -286,8 +286,8 @@ CSV export makes recorded competition data available to spreadsheets, Jupyter no
 Match CSV files support the optional fields `scheduled_balls`, `revised_balls`, `target_runs`, `revised_target_runs` and `result_method`. Match status may be `Scheduled`, `In Progress`, `Completed`, `Abandoned`, `Cancelled`, or `No Result`; a fixture moved to a later date remains `Scheduled`.
 
 Innings CSV files retain `balls` as the canonical legal-delivery count and add
-`innings_status`. The supported values are `not_started`, `in_progress`,
-`completed`, and `abandoned`; conclusions such as all out, target reached, and
+`innings_status`. The supported values are `Not Started`, `In Progress`,
+`Completed`, and `Abandoned`; conclusions such as all out, target reached, and
 the innings limit being reached are derived from the score, wickets, target,
 and allocation. Overs must not be encoded as decimal numbers.
 

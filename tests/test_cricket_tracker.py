@@ -163,6 +163,62 @@ def test_postponed_status_migration_normalises_existing_matches(
     connection.close()
 
 
+def test_title_case_status_migration_normalises_existing_innings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preserve innings while converting every status to its display label."""
+    connection = sqlite3.connect(tmp_path / "status-case-migration.db")
+    connection.row_factory = sqlite3.Row
+    connection.execute(
+        """
+        CREATE TABLE innings (
+            id INTEGER PRIMARY KEY, match_id INTEGER NOT NULL,
+            innings_number INTEGER NOT NULL, batting_team_id INTEGER,
+            bowling_team_id INTEGER, runs INTEGER, wickets INTEGER, balls INTEGER,
+            extras INTEGER, target INTEGER, completed INTEGER NOT NULL DEFAULT 0,
+            innings_status TEXT NOT NULL CHECK (
+                innings_status IN (
+                    'not_started', 'in_progress', 'completed', 'abandoned'
+                )
+            )
+        )
+        """
+    )
+    legacy_statuses = ("not_started", "in_progress", "completed", "abandoned")
+    connection.executemany(
+        """
+        INSERT INTO innings (match_id, innings_number, completed, innings_status)
+        VALUES (?, 1, 0, ?)
+        """,
+        enumerate(legacy_statuses, start=1),
+    )
+    monkeypatch.setattr(yoyo, "step", lambda *_args, **_kwargs: None)
+    migration = runpy.run_path(
+        str(
+            Path(__file__).parents[1]
+            / "migrations"
+            / "020_title_case_innings_status.py"
+        )
+    )
+
+    migration["title_case_innings_status"](connection)
+
+    statuses = connection.execute(
+        "SELECT innings_status FROM innings ORDER BY id"
+    ).fetchall()
+    assert [row["innings_status"] for row in statuses] == [
+        "Not Started", "In Progress", "Completed", "Abandoned",
+    ]
+    with pytest.raises(sqlite3.IntegrityError):
+        connection.execute(
+            """
+            INSERT INTO innings (match_id, innings_number, innings_status)
+            VALUES (5, 1, 'not_started')
+            """
+        )
+    connection.close()
+
+
 def test_streamlit_entrypoint_is_packaged() -> None:
     """Resolve the launcher to a Python file included inside the package.
 
@@ -420,7 +476,7 @@ def test_reduced_match_allocation_controls_innings_validation(
             runs=80,
             wickets=3,
             balls=91,
-            innings_status="in_progress",
+            innings_status="In Progress",
         )
 
 
@@ -498,7 +554,7 @@ def test_t20_result_is_calculated_as_win_by_runs(
         runs=165,
         wickets=7,
         balls=120,
-        innings_status="completed",
+        innings_status="Completed",
     )
     service.save_innings(
         match_id=core["match"],
@@ -508,7 +564,7 @@ def test_t20_result_is_calculated_as_win_by_runs(
         runs=151,
         wickets=9,
         balls=120,
-        innings_status="completed",
+        innings_status="Completed",
     )
 
     # Completing the second innings stores the structured calculated outcome.
@@ -537,7 +593,7 @@ def test_t20_result_is_calculated_as_win_by_wickets(
         runs=165,
         wickets=7,
         balls=120,
-        innings_status="completed",
+        innings_status="Completed",
     )
     service.save_innings(
         match_id=core["match"],
@@ -547,7 +603,7 @@ def test_t20_result_is_calculated_as_win_by_wickets(
         runs=166,
         wickets=4,
         balls=111,
-        innings_status="completed",
+        innings_status="Completed",
     )
 
     result = service.repo.matches.get(core["match"])
@@ -574,7 +630,7 @@ def test_odi_equal_completed_scores_are_a_tie(
         runs=275,
         wickets=8,
         balls=300,
-        innings_status="completed",
+        innings_status="Completed",
     )
     service.save_innings(
         match_id=core["match"],
@@ -584,7 +640,7 @@ def test_odi_equal_completed_scores_are_a_tie(
         runs=275,
         wickets=10,
         balls=299,
-        innings_status="completed",
+        innings_status="Completed",
     )
 
     result = service.repo.matches.get(core["match"])
@@ -612,7 +668,7 @@ def test_revised_target_drives_dls_wicket_result(
         runs=250,
         wickets=8,
         balls=300,
-        innings_status="completed",
+        innings_status="Completed",
     )
     service.save_match(
         entity_id=core["match"],
@@ -635,7 +691,7 @@ def test_revised_target_drives_dls_wicket_result(
         runs=181,
         wickets=5,
         balls=170,
-        innings_status="completed",
+        innings_status="Completed",
     )
 
     result = service.repo.matches.get(core["match"])
@@ -851,12 +907,12 @@ def test_t20_nrr_credits_an_all_out_team_with_full_allocation(
     service.save_innings(
         match_id=core["match"], innings_number=1,
         batting_team_id=core["home"], bowling_team_id=core["away"],
-        runs=120, wickets=10, balls=60, innings_status="completed",
+        runs=120, wickets=10, balls=60, innings_status="Completed",
     )
     service.save_innings(
         match_id=core["match"], innings_number=2,
         batting_team_id=core["away"], bowling_team_id=core["home"],
-        runs=121, wickets=0, balls=60, innings_status="completed",
+        runs=121, wickets=0, balls=60, innings_status="Completed",
     )
 
     table = calculate_standings(
@@ -883,7 +939,7 @@ def test_revised_target_match_is_excluded_from_nrr(
         match_id=core["match"], innings_number=1,
         batting_team_id=core["home"], bowling_team_id=core["away"],
         runs=160, wickets=6, balls=120,
-        innings_status="completed",
+        innings_status="Completed",
     )
     service.save_match(
         entity_id=core["match"], competition_id=core["competition"],
@@ -895,7 +951,7 @@ def test_revised_target_match_is_excluded_from_nrr(
     service.save_innings(
         match_id=core["match"], innings_number=2,
         batting_team_id=core["away"], bowling_team_id=core["home"],
-        runs=81, wickets=3, balls=55, innings_status="completed",
+        runs=81, wickets=3, balls=55, innings_status="Completed",
     )
 
     table = calculate_standings(
@@ -1682,7 +1738,7 @@ def test_negative_runs_reach_service_validation_and_are_not_saved(
             runs=-1,
             wickets=0,
             balls=1,
-            innings_status="in_progress",
+            innings_status="In Progress",
         ),
         "Innings saved.",
         service.repo.connection,
@@ -2157,7 +2213,7 @@ def test_planned_innings_import_allows_blank_details(
     assert innings["wickets"] is None
     assert innings["balls"] is None
     assert innings["completed"] == 0
-    assert innings["innings_status"] == "not_started"
+    assert innings["innings_status"] == "Not Started"
 
 
 def test_completed_match_result_is_derived_from_innings(

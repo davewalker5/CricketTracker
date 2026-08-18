@@ -23,12 +23,12 @@ RESULT_TYPES = (
 )
 RESULT_METHODS = ("Standard", "DLS", "Super Five", "Super Over", "Forfeit", "Walkover", "Other")
 INNINGS_STATUSES = (
-    "not_started",
-    "in_progress",
-    "completed",
-    "abandoned",
+    "Not Started",
+    "In Progress",
+    "Completed",
+    "Abandoned",
 )
-COMPLETED_INNINGS_STATUSES = {"completed"}
+COMPLETED_INNINGS_STATUSES = {"Completed"}
 
 
 class ValidationError(ValueError):
@@ -785,24 +785,24 @@ class CricketService:
         elif completed_value is not None:
             # Legacy callers continue to control conclusion through the boolean field.
             innings_status = (
-                "completed"
+                "Completed"
                 if bool(completed_value)
                 else (
-                    "in_progress"
+                    "In Progress"
                     if any(value is not None for value in supplied_totals)
-                    else "not_started"
+                    else "Not Started"
                 )
             )
         elif any(value is not None for value in supplied_totals):
             innings_status = (
-                "completed"
+                "Completed"
                 if batting_team is not None
                 and bowling_team is not None
                 and all(value is not None for value in supplied_totals)
-                else "in_progress"
+                else "In Progress"
             )
         else:
-            innings_status = "not_started"
+            innings_status = "Not Started"
         completed = innings_status in COMPLETED_INNINGS_STATUSES
         if completed and None in (
             batting_team, bowling_team, values.get("runs"),
@@ -811,7 +811,7 @@ class CricketService:
             raise ValidationError(
                 "Completed innings require both teams, runs, wickets, and balls."
             )
-        if innings_status == "not_started" and any(
+        if innings_status == "Not Started" and any(
             value not in (None, 0) for value in supplied_totals
         ):
             raise ValidationError("A not-started innings cannot contain score progress.")
