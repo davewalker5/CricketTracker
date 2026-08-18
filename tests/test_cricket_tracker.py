@@ -1355,6 +1355,28 @@ def test_reset_competition_editor_clears_selection_and_form(
     }
 
 
+def test_reset_team_editor_clears_selection_and_form(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reset the team editor completely after a successful save."""
+    session_state = {
+        "team_editor_generation": 4,
+        "team_name_None": "New team",
+        "team_country_12": "England",
+        "team_gender_12": "Women",
+        "team_venue_12": "Lord's",
+        "unrelated_widget": "preserved",
+    }
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+
+    tracker_app._reset_team_editor(12)
+
+    assert session_state == {
+        "team_editor_generation": 5,
+        "unrelated_widget": "preserved",
+    }
+
+
 def test_ui_save_is_blocked_in_read_only_mode(
     service: CricketService, monkeypatch: pytest.MonkeyPatch
 ) -> None:
