@@ -1419,6 +1419,45 @@ def test_reset_country_editor_clears_selection_and_form(
     }
 
 
+def test_reset_ruleset_editor_clears_selection_and_form(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reset the ruleset editor completely after a successful save."""
+    form_keys = {
+        "ruleset_name_None",
+        "ruleset_match_format_3",
+        "ruleset_win_3",
+        "ruleset_tie_3",
+        "ruleset_nr_3",
+        "ruleset_abandoned_3",
+        "ruleset_loss_3",
+        "ruleset_has_standings_3",
+        "ruleset_nrr_3",
+        "ruleset_knockouts_3",
+        "ruleset_combined_3",
+        "ruleset_ties_stand_3",
+        "ruleset_tie_break_3",
+        "ruleset_revised_targets_3",
+        "ruleset_balls_3",
+        "ruleset_wickets_3",
+        "ruleset_rate_unit_3",
+        "ruleset_sort_3",
+    }
+    session_state = {
+        "ruleset_editor_generation": 8,
+        **{key: "form value" for key in form_keys},
+        "unrelated_widget": "preserved",
+    }
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+
+    tracker_app._reset_ruleset_editor(3)
+
+    assert session_state == {
+        "ruleset_editor_generation": 9,
+        "unrelated_widget": "preserved",
+    }
+
+
 def test_ui_save_is_blocked_in_read_only_mode(
     service: CricketService, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1474,6 +1513,64 @@ def test_pending_success_is_displayed_after_rerun(
 
     assert displayed == ["Innings saved."]
     assert "_pending_success" not in session_state
+
+
+def test_csv_import_attempt_resets_upload_and_retains_messages(
+    service: CricketService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Clear the used file while preserving its import summary and row errors."""
+    session_state = {"import_upload_generation": 2}
+    displayed_successes: list[str] = []
+    displayed_errors: list[str] = []
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+    monkeypatch.setattr(
+        tracker_app.st,
+        "rerun",
+        lambda: (_ for _ in ()).throw(RuntimeError("rerun")),
+    )
+
+    content = b"name,code\nImported Country,IC\n,XX\n"
+    with pytest.raises(RuntimeError, match="rerun"):
+        tracker_app._attempt_csv_import(service, "countries", content)
+
+    assert session_state["import_upload_generation"] == 3
+    assert session_state["_pending_import_result"] == {
+        "summary": "Imported 1; skipped 1.",
+        "errors": ["Row 3: Country name is required."],
+    }
+
+    monkeypatch.setattr(tracker_app.st, "success", displayed_successes.append)
+    monkeypatch.setattr(tracker_app.st, "error", displayed_errors.append)
+    tracker_app._show_pending_import_result()
+
+    assert displayed_successes == ["Imported 1; skipped 1."]
+    assert displayed_errors == ["Row 3: Country name is required."]
+    assert "_pending_import_result" not in session_state
+
+
+def test_failed_csv_import_resets_upload_and_retains_error(
+    service: CricketService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Clear an invalid uploaded file while retaining its fatal error message."""
+    session_state: dict[str, Any] = {}
+    displayed_errors: list[str] = []
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+    monkeypatch.setattr(
+        tracker_app.st,
+        "rerun",
+        lambda: (_ for _ in ()).throw(RuntimeError("rerun")),
+    )
+
+    with pytest.raises(RuntimeError, match="rerun"):
+        tracker_app._attempt_csv_import(service, "countries", b"")
+
+    assert session_state["import_upload_generation"] == 1
+    monkeypatch.setattr(tracker_app.st, "success", lambda _message: None)
+    monkeypatch.setattr(tracker_app.st, "error", displayed_errors.append)
+    tracker_app._show_pending_import_result()
+
+    assert displayed_errors == ["CSV file must contain a header row."]
+    assert "_pending_import_result" not in session_state
 
 
 def test_innings_validation_error_survives_table_rerun(
