@@ -2497,6 +2497,10 @@ def _main_navigation() -> str:
     st.markdown(
         """
         <style>
+        /* Streamlit reserves generous presentation-style space above wide pages. */
+        [data-testid="stMainBlockContainer"] {
+            padding-top: 2rem;
+        }
         [data-testid="stSidebar"],
         [data-testid="collapsedControl"] {
             display: none;
@@ -2506,17 +2510,20 @@ def _main_navigation() -> str:
         .st-key-main_navigation [data-testid="stRadioGroup"] {
             width: 100% !important;
         }
+        .st-key-main_navigation {
+            margin-bottom: -0.5rem;
+        }
         div[role="radiogroup"] {
             display: flex;
             gap: 0;
             width: 100%;
             border-bottom: 1px solid rgba(49, 51, 63, 0.2);
-            margin: 0 0 1.5rem;
+            margin: 0 0 0.25rem;
         }
         div[role="radiogroup"] > label {
             flex: 1 1 auto;
             justify-content: center;
-            padding: 0.9rem 0.75rem;
+            padding: 0.6rem 0.75rem;
             margin: 0;
             border-bottom: 3px solid transparent;
             border-radius: 0.45rem 0.45rem 0 0;
