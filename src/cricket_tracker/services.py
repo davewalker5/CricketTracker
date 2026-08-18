@@ -15,8 +15,7 @@ GENDERS = ("Men", "Women")
 FORMATS = ("The Hundred", "T20", "One-Day", "Test", "Multi-format")
 MATCH_STAGES = ("League", "Eliminator", "Semi-final", "Final")
 MATCH_STATUSES = (
-    "Scheduled", "In Progress", "Completed", "Postponed",
-    "Abandoned", "Cancelled", "No Result",
+    "Scheduled", "In Progress", "Completed", "Abandoned", "Cancelled", "No Result",
 )
 TOSS_DECISIONS = ("Bat", "Field")
 RESULT_TYPES = (
