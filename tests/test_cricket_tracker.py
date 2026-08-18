@@ -110,6 +110,59 @@ def test_simplified_status_migration_normalises_existing_innings(
     connection.close()
 
 
+def test_postponed_status_migration_normalises_existing_matches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retain postponed fixtures while converting them to scheduled."""
+    connection = sqlite3.connect(tmp_path / "match-status-migration.db")
+    connection.row_factory = sqlite3.Row
+    connection.execute(
+        """
+        CREATE TABLE matches (
+            id INTEGER, competition_id INTEGER, match_date TEXT, start_time TEXT,
+            venue_id INTEGER, home_team_id INTEGER, away_team_id INTEGER,
+            match_stage TEXT, match_status TEXT, toss_winner_team_id INTEGER,
+            toss_decision TEXT, winning_team_id INTEGER, result_type TEXT,
+            result_margin_value INTEGER, result_margin_type TEXT, result_method TEXT,
+            result_source TEXT, result_override_reason TEXT, scheduled_balls INTEGER,
+            revised_balls INTEGER, target_runs INTEGER, revised_target_runs INTEGER
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO matches (
+            id, competition_id, match_date, home_team_id, away_team_id,
+            match_stage, match_status
+        ) VALUES (1, 1, '2026-08-20', 1, 2, 'League', 'Postponed')
+        """
+    )
+    monkeypatch.setattr(yoyo, "step", lambda *_args, **_kwargs: None)
+    migration = runpy.run_path(
+        str(
+            Path(__file__).parents[1]
+            / "migrations"
+            / "019_remove_postponed_match_status.py"
+        )
+    )
+
+    migration["remove_postponed_status"](connection)
+
+    match = connection.execute("SELECT * FROM matches WHERE id = 1").fetchone()
+    assert match is not None
+    assert match["match_status"] == "Scheduled"
+    with pytest.raises(sqlite3.IntegrityError):
+        connection.execute(
+            """
+            INSERT INTO matches (
+                competition_id, match_date, home_team_id, away_team_id,
+                match_stage, match_status
+            ) VALUES (2, '2026-08-21', 3, 4, 'League', 'Postponed')
+            """
+        )
+    connection.close()
+
+
 def test_streamlit_entrypoint_is_packaged() -> None:
     """Resolve the launcher to a Python file included inside the package.
 
@@ -412,6 +465,19 @@ def test_derived_innings_conclusions_are_not_allowed_as_statuses(
                 batting_team_id=core["home"], bowling_team_id=core["away"],
                 runs=100, wickets=5, balls=80, innings_status=status,
             )
+
+
+def test_postponed_is_not_an_allowed_match_status(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Represent a fixture moved to another date as scheduled."""
+    with pytest.raises(ValidationError, match="Match status must be one of"):
+        service.save_match(
+            entity_id=core["match"], competition_id=core["competition"],
+            match_date="2026-07-21", venue_id=core["venue"],
+            home_team_id=core["home"], away_team_id=core["away"],
+            match_status="Postponed",
+        )
 
 
 def test_t20_result_is_calculated_as_win_by_runs(
