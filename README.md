@@ -10,7 +10,7 @@
 
 Cricket Tracker is a local-first desktop application for recording, following and exploring cricket competitions, fixtures, results, innings summaries, league standings and match analysis.
 
-The application supports The Hundred, Twenty20 and one-day cricket. It maintains structured season records without attempting to act as a live-scoring service or reproduce complete scorecards or ball-by-ball data.
+The application supports The Hundred, Twenty20, one-day and Test cricket. It maintains structured season records without attempting to act as a live-scoring service or reproduce complete scorecards or ball-by-ball data.
 
 Built with Python, Streamlit and SQLite, Cricket Tracker uses a cricket-specific relational data model designed to remain simple, maintainable and inspectable. Competition rules are modelled explicitly so that points, standings and net run rate can be calculated consistently from recorded match and innings data.
 
@@ -58,6 +58,8 @@ Rounds may be numeric league stages or descriptive knockout stages such as *Elim
 
 Structured result fields support wins by runs or wickets, ties and no results.
 
+Test fixtures may additionally record their scheduled duration and whether the follow-on was enforced. Their results support draws and wins by an innings and runs.
+
 ### Innings Summaries
 
 Record innings-level summaries separately from the main match record.
@@ -75,6 +77,8 @@ Each innings can include:
 This provides enough information to describe the shape and outcome of a match without requiring complete scorecards or ball-by-ball data.
 
 Future fixtures may contain empty innings records that can be completed after the match has taken place.
+
+Test matches may contain up to four innings in their actual playing order. Innings can be marked all out, declared, forfeited, target reached, or closed when the match ends. The tracker derives team aggregates, first-innings leads, follow-on availability and final-innings targets from these summaries.
 
 Legal deliveries are always stored as whole balls. Over-based formats are displayed using cricket notation, so 83 legal balls is shown as `13.5 overs` rather than treated as a decimal value.
 
@@ -110,6 +114,8 @@ The tracker calculates:
 - Runs Against
 - Balls Bowled
 - Net Run Rate
+
+Test rulesets may award points for a draw. Net run rate is never applied to Test competitions.
 
 Competition rules determine:
 
@@ -186,6 +192,8 @@ All rates are calculated from legal deliveries rather than decimal over notation
 
 Reports use each metric only where the recorded data supports it. A completed result may therefore contribute to a win-loss record even when incomplete innings details prevent it from contributing to score or rate analysis.
 
+The current Analysis reports remain limited to one-innings formats. Test competitions are excluded because batting-first/chasing and single-innings rate assumptions do not describe multi-innings cricket accurately.
+
 ## Supported Match Formats
 
 Cricket Tracker supports one innings per team in:
@@ -193,6 +201,15 @@ Cricket Tracker supports one innings per team in:
 - The Hundred, with innings progress displayed in legal balls
 - Twenty20 cricket, normally 20 six-ball overs
 - One-day cricket, normally 50 six-ball overs
+
+It also supports Test cricket with:
+
+- up to two innings per team;
+- configurable scheduled match duration and follow-on threshold;
+- declarations and innings forfeitures;
+- normal and follow-on innings orders;
+- results by runs, wickets, or an innings and runs;
+- tied, drawn and abandoned matches.
 
 The default allocation comes from the selected match format and may be shortened for an individual match. Competition rules remain separate from match formats, allowing different T20 or ODI competitions to define their own points, standings, tie-break and revised-target behaviour.
 

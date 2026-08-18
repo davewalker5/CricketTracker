@@ -21,6 +21,7 @@ class Standing:
     won: int = 0
     lost: int = 0
     tied: int = 0
+    drawn: int = 0
     no_result: int = 0
     points: int = 0
     net_run_rate: float | None = None
@@ -50,7 +51,7 @@ def _competition_configuration(
     row = connection.execute(
         """
         SELECT c.*, r.points_for_win, r.points_for_tie, r.points_for_no_result,
-               r.points_for_abandonment, r.points_for_loss,
+               r.points_for_abandonment, r.points_for_draw, r.points_for_loss,
                r.uses_net_run_rate, r.has_standings,
                r.include_knockout_matches_in_table, r.table_sort_order,
                r.balls_per_innings, r.wickets_per_innings,
@@ -214,8 +215,8 @@ def calculate_standings(
         FROM matches m
         WHERE m.competition_id = ?
           AND (
-              m.match_status IN ('Completed', 'No Result', 'Abandoned')
-              OR m.result_type IN ('No Result', 'Abandoned')
+              m.match_status IN ('Completed', 'Drawn', 'No Result', 'Abandoned')
+              OR m.result_type IN ('Draw', 'No Result', 'Abandoned')
           )
           AND m.result_type IS NOT NULL
           {stage_clause}
@@ -247,6 +248,11 @@ def calculate_standings(
             away.tied += 1
             home.points += int(ruleset["points_for_tie"])
             away.points += int(ruleset["points_for_tie"])
+        elif result_type == "Draw":
+            home.drawn += 1
+            away.drawn += 1
+            home.points += int(ruleset["points_for_draw"])
+            away.points += int(ruleset["points_for_draw"])
         elif result_type == "No Result":
             home.no_result += 1
             away.no_result += 1

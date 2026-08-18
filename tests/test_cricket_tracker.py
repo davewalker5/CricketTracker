@@ -314,7 +314,7 @@ def test_standard_match_formats_are_seeded_and_hundred_is_associated(
     # Stable codes let later phases select behaviour without inspecting display names.
     formats = {row["code"]: row for row in service.list_match_formats()}
 
-    assert set(formats) == {"HUNDRED", "T20", "ODI"}
+    assert set(formats) == {"HUNDRED", "T20", "ODI", "TEST"}
     assert formats["HUNDRED"]["limit_unit"] == "balls"
     assert formats["HUNDRED"]["innings_limit"] == 100
     assert formats["HUNDRED"]["balls_per_over"] is None
