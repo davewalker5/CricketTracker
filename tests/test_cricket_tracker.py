@@ -1626,6 +1626,45 @@ def test_match_form_team_options_preserve_duplicate_gendered_names(
     assert options["London Spirit Men — Women"] == duplicate
 
 
+def test_match_form_team_options_match_competition_gender(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Offer only teams matching the selected competition's gender."""
+    women_team = service.save_team(
+        name="London Spirit Women", country_id=core["country"],
+        gender="Women", home_venue_id=core["venue"],
+    )
+    competition = next(
+        row for row in service.list_competitions()
+        if int(row["id"]) == core["competition"]
+    )
+
+    options = tracker_app._competition_team_options(
+        service.list_teams(), competition
+    )
+
+    assert set(options.values()) == {core["home"], core["away"]}
+    assert women_team not in options.values()
+
+
+def test_match_rejects_teams_from_another_gender(
+    service: CricketService, core: dict[str, int]
+) -> None:
+    """Prevent callers bypassing the form's competition-gender filter."""
+    women_team = service.save_team(
+        name="London Spirit Women", country_id=core["country"],
+        gender="Women", home_venue_id=core["venue"],
+    )
+
+    with pytest.raises(ValidationError, match="match the competition gender"):
+        service.save_match(
+            competition_id=core["competition"], match_date="2026-07-21",
+            venue_id=core["venue"], home_team_id=core["home"],
+            away_team_id=women_team, match_stage="League",
+            match_status="Scheduled",
+        )
+
+
 def test_match_competition_change_clears_editor_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1657,6 +1696,39 @@ def test_match_competition_change_clears_editor_state(
     assert "match_date_10" not in session_state
     assert "match_winner_10" not in session_state
     assert "match_calculated_result_10" not in session_state
+
+
+def test_new_match_save_selects_saved_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Publish a newly saved match and rebuild its selectable table."""
+    session_state = {
+        "match_workspace_match_id": None,
+        "match_editor_generation": 3,
+        "match_editor_new": True,
+    }
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+
+    tracker_app._select_saved_match(42)
+
+    assert session_state["match_workspace_match_id"] == 42
+    assert session_state["match_editor_generation"] == 4
+    assert session_state["match_editor_new"] is False
+
+
+def test_new_innings_save_closes_and_resets_form(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Return to the no-selection state after successfully adding an innings."""
+    session_state: dict[str, int | bool] = {
+        "innings_editor_7_new": True,
+    }
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+
+    tracker_app._reset_new_innings_form("innings_editor_7", 2)
+
+    assert session_state["innings_editor_7_new_form_generation"] == 3
+    assert session_state["innings_editor_7_new"] is False
 
 
 def test_innings_match_selector_updates_shared_match(
