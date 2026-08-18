@@ -27,14 +27,9 @@ INNINGS_STATUSES = (
     "not_started",
     "in_progress",
     "completed",
-    "all_out",
-    "target_reached",
-    "innings_limit_reached",
     "abandoned",
 )
-COMPLETED_INNINGS_STATUSES = {
-    "completed", "all_out", "target_reached", "innings_limit_reached",
-}
+COMPLETED_INNINGS_STATUSES = {"completed"}
 
 
 class ValidationError(ValueError):
@@ -821,28 +816,6 @@ class CricketService:
             value not in (None, 0) for value in supplied_totals
         ):
             raise ValidationError("A not-started innings cannot contain score progress.")
-        if innings_status == "all_out" and wickets != int(
-            conditions["wickets_per_innings"]
-        ):
-            raise ValidationError(
-                "An all-out innings must have lost every available wicket."
-            )
-        if innings_status == "innings_limit_reached" and balls != allocation:
-            raise ValidationError(
-                "An innings-limit-reached innings must use its full allocation."
-            )
-        if innings_status == "target_reached":
-            if innings_number != 2:
-                raise ValidationError("Only the chasing innings can reach a target.")
-            supplied_target = optional_non_negative(values.get("target"), "Target")
-            target = self.resolve_chasing_target(match_id, supplied_target)
-            if target in (None, 0):
-                raise ValidationError("A target-reached innings requires a target.")
-            runs = optional_non_negative(values.get("runs"), "Runs")
-            if runs is None or runs < target:
-                raise ValidationError(
-                    "A target-reached innings must meet or exceed its target."
-                )
         data = {
             "match_id": match_id,
             "innings_number": innings_number,

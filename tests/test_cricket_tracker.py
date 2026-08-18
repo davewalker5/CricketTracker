@@ -6,10 +6,12 @@ import csv
 import io
 import sqlite3
 import ast
+import runpy
 from pathlib import Path
 
 import pandas as pd
 import pytest
+import yoyo
 
 from cricket_tracker.database import apply_migrations
 
@@ -45,6 +47,67 @@ def test_migrations_do_not_print_sql_results(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "quick_check" not in captured.err
+
+
+def test_simplified_status_migration_normalises_existing_innings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Convert every legacy terminal conclusion to completed safely."""
+    connection = sqlite3.connect(tmp_path / "status-migration.db")
+    connection.row_factory = sqlite3.Row
+    connection.execute(
+        """
+        CREATE TABLE innings (
+            id INTEGER PRIMARY KEY,
+            match_id INTEGER NOT NULL,
+            innings_number INTEGER NOT NULL CHECK (innings_number > 0),
+            batting_team_id INTEGER,
+            bowling_team_id INTEGER,
+            runs INTEGER CHECK (runs IS NULL OR runs >= 0),
+            wickets INTEGER CHECK (wickets IS NULL OR wickets BETWEEN 0 AND 10),
+            balls INTEGER CHECK (balls IS NULL OR balls >= 0),
+            extras INTEGER CHECK (extras IS NULL OR extras >= 0),
+            target INTEGER CHECK (target IS NULL OR target > 0),
+            completed INTEGER NOT NULL DEFAULT 0 CHECK (completed IN (0, 1)),
+            innings_status TEXT NOT NULL,
+            CHECK (batting_team_id <> bowling_team_id),
+            UNIQUE (match_id, innings_number),
+            UNIQUE (match_id, batting_team_id)
+        )
+        """
+    )
+    legacy_statuses = ("all_out", "target_reached", "innings_limit_reached")
+    connection.executemany(
+        """
+        INSERT INTO innings (
+            match_id, innings_number, completed, innings_status
+        ) VALUES (?, 1, 0, ?)
+        """,
+        enumerate(legacy_statuses, start=1),
+    )
+    # Load the migration functions outside Yoyo's normal collector context.
+    monkeypatch.setattr(yoyo, "step", lambda *_args, **_kwargs: None)
+    migration = runpy.run_path(
+        str(Path(__file__).parents[1] / "migrations" / "018_simplify_innings_status.py")
+    )
+
+    migration["simplify_innings_status"](connection)
+
+    rows = connection.execute(
+        "SELECT completed, innings_status FROM innings ORDER BY id"
+    ).fetchall()
+    assert [(row["completed"], row["innings_status"]) for row in rows] == [
+        (1, "completed"), (1, "completed"), (1, "completed"),
+    ]
+    with pytest.raises(sqlite3.IntegrityError):
+        connection.execute(
+            """
+            INSERT INTO innings (
+                match_id, innings_number, completed, innings_status
+            ) VALUES (4, 1, 1, 'all_out')
+            """
+        )
+    connection.close()
 
 
 def test_streamlit_entrypoint_is_packaged() -> None:
@@ -333,107 +396,22 @@ def test_revised_allocation_cannot_exceed_scheduled_allocation(
         )
 
 
-def test_all_out_status_requires_every_available_wicket(
+def test_derived_innings_conclusions_are_not_allowed_as_statuses(
     service: CricketService, core: dict[str, int]
 ) -> None:
-    """Validate the wicket condition represented by an all-out status.
+    """Represent all terminal scoring conclusions with the completed status.
 
     :param service: Cricket service.
     :param core: Core fixture identifiers.
     :return: None.
     """
-    with pytest.raises(ValidationError, match="every available wicket"):
-        service.save_innings(
-            match_id=core["match"],
-            innings_number=1,
-            batting_team_id=core["home"],
-            bowling_team_id=core["away"],
-            runs=95,
-            wickets=9,
-            balls=72,
-            innings_status="all_out",
-        )
-
-    innings_id = service.save_innings(
-        match_id=core["match"],
-        innings_number=1,
-        batting_team_id=core["home"],
-        bowling_team_id=core["away"],
-        runs=95,
-        wickets=10,
-        balls=72,
-        innings_status="all_out",
-    )
-    # Terminal semantic statuses remain compatible with the legacy completion flag.
-    assert service.repo.innings.get(innings_id)["completed"] == 1
-
-
-def test_target_reached_status_validates_chasing_score(
-    service: CricketService, core: dict[str, int]
-) -> None:
-    """Require the second innings to meet its explicitly recorded target.
-
-    :param service: Cricket service.
-    :param core: Core fixture identifiers.
-    :return: None.
-    """
-    service.save_innings(
-        match_id=core["match"],
-        innings_number=1,
-        batting_team_id=core["home"],
-        bowling_team_id=core["away"],
-        runs=149,
-        wickets=6,
-        balls=100,
-        innings_status="innings_limit_reached",
-    )
-    with pytest.raises(ValidationError, match="meet or exceed"):
-        service.save_innings(
-            match_id=core["match"],
-            innings_number=2,
-            batting_team_id=core["away"],
-            bowling_team_id=core["home"],
-            runs=149,
-            wickets=4,
-            balls=87,
-            target=150,
-            innings_status="target_reached",
-        )
-
-    innings_id = service.save_innings(
-        match_id=core["match"],
-        innings_number=2,
-        batting_team_id=core["away"],
-        bowling_team_id=core["home"],
-        runs=150,
-        wickets=4,
-        balls=88,
-        target=150,
-        innings_status="target_reached",
-    )
-    assert service.repo.innings.get(innings_id)["innings_status"] == "target_reached"
-
-
-def test_innings_limit_status_requires_full_effective_allocation(
-    service: CricketService, core: dict[str, int]
-) -> None:
-    """Require an innings-limit status to match the effective allocation.
-
-    :param service: Cricket service.
-    :param core: Core fixture identifiers.
-    :return: None.
-    """
-    with pytest.raises(ValidationError, match="full allocation"):
-        service.save_innings(
-            match_id=core["match"],
-            innings_number=1,
-            batting_team_id=core["home"],
-            bowling_team_id=core["away"],
-            runs=120,
-            wickets=5,
-            balls=99,
-            innings_status="innings_limit_reached",
-        )
+    for status in ("all_out", "target_reached", "innings_limit_reached"):
+        with pytest.raises(ValidationError, match="Innings status must be one of"):
+            service.save_innings(
+                match_id=core["match"], innings_number=1,
+                batting_team_id=core["home"], bowling_team_id=core["away"],
+                runs=100, wickets=5, balls=80, innings_status=status,
+            )
 
 
 def test_t20_result_is_calculated_as_win_by_runs(
@@ -454,7 +432,7 @@ def test_t20_result_is_calculated_as_win_by_runs(
         runs=165,
         wickets=7,
         balls=120,
-        innings_status="innings_limit_reached",
+        innings_status="completed",
     )
     service.save_innings(
         match_id=core["match"],
@@ -464,7 +442,7 @@ def test_t20_result_is_calculated_as_win_by_runs(
         runs=151,
         wickets=9,
         balls=120,
-        innings_status="innings_limit_reached",
+        innings_status="completed",
     )
 
     # Completing the second innings stores the structured calculated outcome.
@@ -493,7 +471,7 @@ def test_t20_result_is_calculated_as_win_by_wickets(
         runs=165,
         wickets=7,
         balls=120,
-        innings_status="innings_limit_reached",
+        innings_status="completed",
     )
     service.save_innings(
         match_id=core["match"],
@@ -503,7 +481,7 @@ def test_t20_result_is_calculated_as_win_by_wickets(
         runs=166,
         wickets=4,
         balls=111,
-        innings_status="target_reached",
+        innings_status="completed",
     )
 
     result = service.repo.matches.get(core["match"])
@@ -530,7 +508,7 @@ def test_odi_equal_completed_scores_are_a_tie(
         runs=275,
         wickets=8,
         balls=300,
-        innings_status="innings_limit_reached",
+        innings_status="completed",
     )
     service.save_innings(
         match_id=core["match"],
@@ -540,7 +518,7 @@ def test_odi_equal_completed_scores_are_a_tie(
         runs=275,
         wickets=10,
         balls=299,
-        innings_status="all_out",
+        innings_status="completed",
     )
 
     result = service.repo.matches.get(core["match"])
@@ -568,7 +546,7 @@ def test_revised_target_drives_dls_wicket_result(
         runs=250,
         wickets=8,
         balls=300,
-        innings_status="innings_limit_reached",
+        innings_status="completed",
     )
     service.save_match(
         entity_id=core["match"],
@@ -591,7 +569,7 @@ def test_revised_target_drives_dls_wicket_result(
         runs=181,
         wickets=5,
         balls=170,
-        innings_status="target_reached",
+        innings_status="completed",
     )
 
     result = service.repo.matches.get(core["match"])
@@ -807,12 +785,12 @@ def test_t20_nrr_credits_an_all_out_team_with_full_allocation(
     service.save_innings(
         match_id=core["match"], innings_number=1,
         batting_team_id=core["home"], bowling_team_id=core["away"],
-        runs=120, wickets=10, balls=60, innings_status="all_out",
+        runs=120, wickets=10, balls=60, innings_status="completed",
     )
     service.save_innings(
         match_id=core["match"], innings_number=2,
         batting_team_id=core["away"], bowling_team_id=core["home"],
-        runs=121, wickets=0, balls=60, innings_status="target_reached",
+        runs=121, wickets=0, balls=60, innings_status="completed",
     )
 
     table = calculate_standings(
@@ -839,7 +817,7 @@ def test_revised_target_match_is_excluded_from_nrr(
         match_id=core["match"], innings_number=1,
         batting_team_id=core["home"], bowling_team_id=core["away"],
         runs=160, wickets=6, balls=120,
-        innings_status="innings_limit_reached",
+        innings_status="completed",
     )
     service.save_match(
         entity_id=core["match"], competition_id=core["competition"],
@@ -851,7 +829,7 @@ def test_revised_target_match_is_excluded_from_nrr(
     service.save_innings(
         match_id=core["match"], innings_number=2,
         batting_team_id=core["away"], bowling_team_id=core["home"],
-        runs=81, wickets=3, balls=55, innings_status="target_reached",
+        runs=81, wickets=3, balls=55, innings_status="completed",
     )
 
     table = calculate_standings(
