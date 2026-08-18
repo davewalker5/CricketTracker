@@ -211,6 +211,28 @@ def _clear_editor(editor_key: str) -> None:
     st.rerun()
 
 
+def _reset_competition_editor(_saved_id: int | None = None) -> None:
+    """Clear competition table selection and all add/edit form values.
+
+    :param _saved_id: Identifier returned by the save action; intentionally unused.
+    :return: None.
+    """
+    st.session_state["competition_editor_generation"] = (
+        st.session_state.get("competition_editor_generation", 0) + 1
+    )
+    form_prefixes = (
+        "competition_name_",
+        "competition_year_",
+        "competition_ruleset_",
+        "competition_gender_",
+        "competition_format_",
+        "competition_country_",
+    )
+    for key in list(st.session_state):
+        if key.startswith(form_prefixes):
+            del st.session_state[key]
+
+
 def _selectable_table(
     rows: list[dict[str, Any]],
     columns: list[tuple[str, str]],
@@ -1930,6 +1952,7 @@ def _competitions(service: CricketService, read_only: bool = False) -> None:
             service.repo.connection,
             read_only,
             error_key=competition_error_key,
+            on_success=_reset_competition_editor,
         )
     elif delete_clicked and selected_id is not None:
         _delete(
