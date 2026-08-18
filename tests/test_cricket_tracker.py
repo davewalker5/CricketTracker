@@ -1377,6 +1377,28 @@ def test_reset_team_editor_clears_selection_and_form(
     }
 
 
+def test_reset_venue_editor_clears_selection_and_form(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reset the venue editor completely after a successful save."""
+    session_state = {
+        "venue_editor_generation": 6,
+        "venue_name_None": "New ground",
+        "venue_city_9": "London",
+        "venue_country_9": "England",
+        "venue_capacity_9": 30000,
+        "unrelated_widget": "preserved",
+    }
+    monkeypatch.setattr(tracker_app.st, "session_state", session_state)
+
+    tracker_app._reset_venue_editor(9)
+
+    assert session_state == {
+        "venue_editor_generation": 7,
+        "unrelated_widget": "preserved",
+    }
+
+
 def test_ui_save_is_blocked_in_read_only_mode(
     service: CricketService, monkeypatch: pytest.MonkeyPatch
 ) -> None:
