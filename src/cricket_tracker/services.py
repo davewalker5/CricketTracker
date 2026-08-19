@@ -834,10 +834,13 @@ class CricketService:
         innings = self.repo.list_innings(match_id)
         for row in innings:
             # Draft innings without a delivery count retain a blank progress value.
+            # Unlimited Test formats have no allocation unit, but their optional
+            # delivery progress is still conventionally displayed in overs.
+            display_unit = row["limit_unit"] or "overs"
             row["delivery_display"] = (
                 format_delivery_count(
                     int(row["balls"]),
-                    limit_unit=str(row["limit_unit"]),
+                    limit_unit=str(display_unit),
                     balls_per_over=row["balls_per_over"],
                 )
                 if row["balls"] is not None
