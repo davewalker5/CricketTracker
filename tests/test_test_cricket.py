@@ -64,6 +64,27 @@ def test_test_format_is_unlimited_and_active(
     assert listed["effective_delivery_display"] == "Unlimited"
 
 
+def test_test_innings_with_delivery_progress_can_be_listed(
+    service: CricketService, test_match: dict[str, int]
+) -> None:
+    """Unlimited innings display optional delivery progress in over notation."""
+    innings_id = innings(
+        service,
+        test_match,
+        1,
+        test_match["first"],
+        0,
+        0,
+        "In Progress",
+        0,
+    )
+
+    listed = service.list_innings(test_match["match"])
+
+    assert listed[0]["id"] == innings_id
+    assert listed[0]["delivery_display"] == "0.0 overs"
+
+
 def test_fourth_innings_run_victory_is_calculated(
     service: CricketService, test_match: dict[str, int]
 ) -> None:
@@ -172,4 +193,3 @@ def test_test_rejects_limited_overs_fields_and_invalid_order(
         )
     with pytest.raises(ValidationError, match="numbered consecutively"):
         innings(service, test_match, 2, test_match["second"], 200, 10, "All Out")
-
