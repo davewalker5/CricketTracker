@@ -1,5 +1,13 @@
 competition,season,match_date,home_team,away_team,innings_number,batting_team,bowling_team,runs,wickets,balls,extras,target,completed,innings_status
-England v Pakistan Test Series,2026,2026-08-19,England,Pakistan,1,,,,,,,,0,Not Started
-England v Pakistan Test Series,2026,2026-08-19,England,Pakistan,2,,,,,,,,0,Not Started
-England v Pakistan Test Series,2026,2026-08-19,England,Pakistan,3,,,,,,,,0,Not Started
-England v Pakistan Test Series,2026,2026-08-19,England,Pakistan,4,,,,,,,,0,Not Started
+England v Pakistan Test Series,2026,2026-08-19,England,Pakistan,1,Pakistan,England,171,10,289,,,1,All Out
+England v Pakistan Test Series,2026,2026-08-19,England,Pakistan,2,England,Pakistan,409,10,537,,,1,All Out
+England v Pakistan Test Series,2026,2026-08-19,England,Pakistan,3,Pakistan,England,135,10,225,,,1,All Out
+England v Pakistan Test Series,2026,2026-08-19,England,Pakistan,4,,,0,0,0,,,0,Match Ended
+England v Pakistan Test Series,2026,2026-08-27,England,Pakistan,1,England,Pakistan,290,10,400,24,,1,All Out
+England v Pakistan Test Series,2026,2026-08-27,England,Pakistan,2,Pakistan,England,110,9,224,20,,1,Completed
+England v Pakistan Test Series,2026,2026-08-27,England,Pakistan,3,England,Pakistan,208,10,326,17,,1,All Out
+England v Pakistan Test Series,2026,2026-08-27,England,Pakistan,4,Pakistan,England,194,9,305,12,389,1,Completed
+England v Pakistan Test Series,2026,2026-09-09,England,Pakistan,1,Pakistan,England,133,10,203,20,,1,All Out
+England v Pakistan Test Series,2026,2026-09-09,England,Pakistan,2,England,Pakistan,453,10,534,45,,1,All Out
+England v Pakistan Test Series,2026,2026-09-09,England,Pakistan,3,Pakistan,England,449,10,580,43,,1,All Out
+England v Pakistan Test Series,2026,2026-09-09,England,Pakistan,4,England,Pakistan,130,2,146,9,130,1,Target Reached

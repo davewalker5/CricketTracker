@@ -1,2 +1,4 @@
 competition,season,match_date,start_time,venue,home_team,away_team,match_stage,match_status,toss_winner,toss_decision,winning_team,result_type,result_margin_value,result_margin_type,result_method,result_source,result_override_reason,scheduled_balls,revised_balls,target_runs,revised_target_runs,scheduled_days,follow_on_enforced,effective_follow_on_lead
-England v Pakistan Test Series,2026,2026-08-19,11:00,Headingley,England,Pakistan,League,Scheduled,,,,,,,,,,,,,,5,0,
+England v Pakistan Test Series,2026,2026-08-19,11:00,Headingley,England,Pakistan,League,Completed,England,Field,England,Innings and Runs,103,Runs,Other,Manual,England won by an innings and 103 runs,,,,,5,0,
+England v Pakistan Test Series,2026,2026-08-27,11:00,Lord's,England,Pakistan,League,Completed,Pakistan,Field,England,Runs,194,Runs,Standard,Manual,England won by 194 runs,,,,,5,0,
+England v Pakistan Test Series,2026,2026-09-09,11:00,Edgbaston,England,Pakistan,League,Completed,England,Field,England,Wickets,8,Wickets,Standard,Manual,England won by 8 wickets,,,,,5,0,

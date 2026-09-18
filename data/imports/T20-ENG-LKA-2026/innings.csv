@@ -1,7 +1,7 @@
 competition,season,match_date,home_team,away_team,innings_number,batting_team,bowling_team,runs,wickets,balls,extras,target,completed,innings_status
-England v Sri Lanka T20I Series,2026,2026-09-15,England,Sri Lanka,1,,,,,,,,0,Not Started
-England v Sri Lanka T20I Series,2026,2026-09-15,England,Sri Lanka,2,,,,,,,,0,Not Started
-England v Sri Lanka T20I Series,2026,2026-09-17,England,Sri Lanka,1,,,,,,,,0,Not Started
-England v Sri Lanka T20I Series,2026,2026-09-17,England,Sri Lanka,2,,,,,,,,0,Not Started
+England v Sri Lanka T20I Series,2026,2026-09-15,England,Sri Lanka,1,England,Sri Lanka,254,4,120,17,,1,Completed
+England v Sri Lanka T20I Series,2026,2026-09-15,England,Sri Lanka,2,Sri Lanka,England,135,10,114,10,255,1,All Out
+England v Sri Lanka T20I Series,2026,2026-09-17,England,Sri Lanka,1,Sri Lanka,England,145,9,120,9,,1,Completed
+England v Sri Lanka T20I Series,2026,2026-09-17,England,Sri Lanka,2,England,Sri Lanka,146,4,73,5,146,1,Target Reached
 England v Sri Lanka T20I Series,2026,2026-09-19,England,Sri Lanka,1,,,,,,,,0,Not Started
 England v Sri Lanka T20I Series,2026,2026-09-19,England,Sri Lanka,2,,,,,,,,0,Not Started
