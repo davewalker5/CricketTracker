@@ -1,7 +1,7 @@
 competition,season,match_date,home_team,away_team,innings_number,batting_team,bowling_team,runs,wickets,balls,extras,target,completed,innings_status
-England Women v Ireland Women ODI Series,2026,2026-09-01,England,Ireland,1,,,,,,,,0,Not Started
-England Women v Ireland Women ODI Series,2026,2026-09-01,England,Ireland,2,,,,,,,,0,Not Started
-England Women v Ireland Women ODI Series,2026,2026-09-03,England,Ireland,1,,,,,,,,0,Not Started
-England Women v Ireland Women ODI Series,2026,2026-09-03,England,Ireland,2,,,,,,,,0,Not Started
-England Women v Ireland Women ODI Series,2026,2026-09-06,England,Ireland,1,,,,,,,,0,Not Started
-England Women v Ireland Women ODI Series,2026,2026-09-06,England,Ireland,2,,,,,,,,0,Not Started
+England Women v Ireland Women ODI Series,2026,2026-09-01,England,Ireland,1,Ireland,England,281,5,300,33,,1,Completed
+England Women v Ireland Women ODI Series,2026,2026-09-01,England,Ireland,2,England,Ireland,283,4,229,19,282,1,Target Reached
+England Women v Ireland Women ODI Series,2026,2026-09-03,England,Ireland,1,Ireland,England,165,10,282,14,,1,All Out
+England Women v Ireland Women ODI Series,2026,2026-09-03,England,Ireland,2,England,Ireland,166,4,138,11,166,1,Target Reached
+England Women v Ireland Women ODI Series,2026,2026-09-06,England,Ireland,1,England,Ireland,291,10,293,9,,1,All Out
+England Women v Ireland Women ODI Series,2026,2026-09-06,England,Ireland,2,Ireland,England,177,10,266,13,292,1,All Out
